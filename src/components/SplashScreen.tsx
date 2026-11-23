@@ -11,7 +11,7 @@ export function SplashScreen({ onComplete, reducedMotion }: SplashScreenProps) {
 
   useEffect(() => {
     const start = performance.now();
-    const duration = reducedMotion ? 900 : 1900;
+    const duration = reducedMotion ? 900 : 1800;
     let raf = 0;
 
     const step = (now: number) => {
@@ -39,24 +39,12 @@ export function SplashScreen({ onComplete, reducedMotion }: SplashScreenProps) {
       }}
     >
       <div className="flex flex-col items-center max-w-md w-full text-center">
-        {/* Bespoke SVG Emblem */}
-        <svg
-          viewBox="0 0 120 120"
-          fill="none"
-          aria-hidden="true"
-          className="w-20 h-20 sm:w-28 sm:h-28 mb-3 sm:mb-5"
-        >
-          <circle cx="60" cy="60" r="54" stroke="#38bdf8" strokeWidth="2.5" strokeOpacity="0.35" />
-          <circle cx="60" cy="60" r="44" stroke="#2dd4bf" strokeWidth="1.5" strokeDasharray="6 6" />
-          <path
-            d="M60 20L74 58L104 72L104 80L72 72L68 94L80 102L80 107L60 102L40 107L40 102L52 94L48 72L16 80L16 72L46 58L60 20Z"
-            fill="#f8fafc"
-            stroke="#38bdf8"
-            strokeWidth="2.2"
-            strokeLinejoin="round"
-          />
-          <path d="M60 32L65 54H55L60 32Z" fill="#0284c7" />
-        </svg>
+        {/* Rebuilt Crisp AeroGlide Logo */}
+        <img
+          src="/icon.svg"
+          alt="Logo AeroGlide 3D"
+          className="w-20 h-20 sm:w-28 sm:h-28 mb-3 sm:mb-5 rounded-2xl shadow-xl"
+        />
 
         <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-white mb-1.5 sm:mb-2">
           AERO<span className="text-sky-400">GLIDE</span> 3D

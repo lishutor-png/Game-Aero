@@ -2,14 +2,17 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createProceduralPlane, type PlaneRig } from './planeModel';
 import { ENVIRONMENT_THEMES, pickRandomTheme } from './themes';
+import { computeEffectivePlaneStats, DEFAULT_PROGRESS } from './planes';
 import { soundEngine } from './audio';
 import { FlightInputController } from './gyro';
 import type {
+  EffectivePlaneStats,
   GameMode,
   GameOverSummary,
   GameSettings,
   GraphicsQuality,
   HudSnapshot,
+  PlaneId,
   PowerUpType,
   ThemeId,
 } from '../types/game';
@@ -197,19 +200,25 @@ export class FlightWorldEngine {
   private graphicsQuality: GraphicsQuality = 'auto';
   private bestScore = 0;
 
+  private planeStats: EffectivePlaneStats = computeEffectivePlaneStats(DEFAULT_PROGRESS);
   private planeX = 0;
   private planeVelX = 0;
   private planeRoll = 0;
-  private forwardSpeed = 30;
+  private forwardSpeed = 24;
   private distance = 0;
   private bonusScore = 0;
+  private runEarnedPoints = 0;
   private combo = 0;
   private maxCombo = 0;
   private powerUpsCollected = 0;
 
+  private lives = 3;
+  private armorRemaining = 0;
   private hasShield = false;
   private turboRemaining = 0;
   private readonly turboDuration = 5.5;
+  private boosterActiveRemaining = 0;
+  private boosterCooldownRemaining = 0;
   private invulnTimer = 0;
   private hitstopTimer = 0;
   private shakeIntensity = 0;
@@ -223,8 +232,9 @@ export class FlightWorldEngine {
   private disposed = false;
   private hudThrottle = 0;
 
-  // Bound resize & touch handlers
+  // Bound resize, booster key & touch handlers
   private onResizeBound: () => void;
+  private onKeyDownBound: (e: KeyboardEvent) => void;
   private onTouchStartBound: (e: TouchEvent) => void;
   private onTouchMoveBound: (e: TouchEvent) => void;
   private onTouchEndBound: () => void;
@@ -410,6 +420,15 @@ export class FlightWorldEngine {
 
     // Listeners
     this.onResizeBound = () => this.handleResize();
+    this.onKeyDownBound = (e: KeyboardEvent) => {
+      if (this.runningState !== 'playing') return;
+      if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyW' || e.code === 'ArrowUp') {
+        if (this.planeStats.hasBooster) {
+          e.preventDefault();
+          this.activateBooster();
+        }
+      }
+    };
     this.onTouchStartBound = (e: TouchEvent) => {
       if (this.runningState === 'playing' && e.touches.length > 0) {
         this.input.handleTouchStart(e.touches[0].clientX);
@@ -425,6 +444,7 @@ export class FlightWorldEngine {
     };
 
     window.addEventListener('resize', this.onResizeBound);
+    window.addEventListener('keydown', this.onKeyDownBound);
     this.renderer.domElement.addEventListener('touchstart', this.onTouchStartBound, { passive: true });
     this.renderer.domElement.addEventListener('touchmove', this.onTouchMoveBound, { passive: true });
     this.renderer.domElement.addEventListener('touchend', this.onTouchEndBound);
@@ -710,9 +730,39 @@ export class FlightWorldEngine {
     this.bestScore = best;
   }
 
-  public startSession(mode: GameMode, settings: GameSettings): void {
+  public setPlaneType(planeId: PlaneId): void {
+    if (this.planeStats.planeId === planeId) return;
+    this.planeStats = { ...this.planeStats, planeId };
+    this.scene.remove(this.plane.root);
+    this.plane.dispose();
+    this.plane = createProceduralPlane(this.isSoftwareGl, planeId);
+    this.plane.root.position.set(this.planeX, PLANE_Y, 0);
+    this.scene.add(this.plane.root);
+  }
+
+  public activateBooster(): boolean {
+    if (this.runningState !== 'playing') return false;
+    if (!this.planeStats.hasBooster) return false;
+    if (this.boosterActiveRemaining > 0 || this.boosterCooldownRemaining > 0) return false;
+
+    this.boosterActiveRemaining = this.planeStats.boosterDuration;
+    this.shakeIntensity = Math.max(this.shakeIntensity, 0.18);
+    soundEngine.playBooster();
+    this.emitParticles(this.planeX, PLANE_Y, 1.4, 0xf97316, 14);
+    this.callbacks.onAnnounce('Booster diaktifkan! Kecepatan meningkat drastis.');
+    const { tiltDeg, steer, source } = this.input.sample();
+    this.emitHudSnapshot(tiltDeg, steer, source);
+    return true;
+  }
+
+  public startSession(mode: GameMode, settings: GameSettings, planeStats: EffectivePlaneStats): void {
     soundEngine.unlock();
     soundEngine.startDynamicMusic('flight');
+
+    if (this.planeStats.planeId !== planeStats.planeId) {
+      this.setPlaneType(planeStats.planeId);
+    }
+    this.planeStats = planeStats;
 
     this.gameMode = mode;
     this.runningState = 'playing';
@@ -727,15 +777,20 @@ export class FlightWorldEngine {
     this.planeX = 0;
     this.planeVelX = 0;
     this.planeRoll = 0;
-    this.forwardSpeed = mode === 'practice' ? 22 : 28;
+    this.forwardSpeed = (mode === 'practice' ? 20 : 24) * planeStats.speedMultiplier;
     this.distance = 0;
     this.bonusScore = 0;
+    this.runEarnedPoints = 0;
     this.combo = 0;
     this.maxCombo = 0;
     this.powerUpsCollected = 0;
+    this.lives = planeStats.maxLives;
+    this.armorRemaining = planeStats.startingArmor;
     this.hasShield = false;
     this.turboRemaining = 0;
-    this.invulnTimer = 0.6;
+    this.boosterActiveRemaining = 0;
+    this.boosterCooldownRemaining = 0;
+    this.invulnTimer = 0.7;
     this.hitstopTimer = 0;
     this.shakeIntensity = 0;
     this.spawnDistanceAccum = 0;
@@ -744,6 +799,7 @@ export class FlightWorldEngine {
     this.practiceTimer = 0;
 
     this.plane.shieldMesh.visible = false;
+    this.plane.armorMesh.visible = this.armorRemaining > 0;
     this.plane.root.visible = true;
 
     for (const ob of this.obstacles) {
@@ -757,15 +813,17 @@ export class FlightWorldEngine {
 
     // Spawn a friendly starter gate or power-up right ahead in Practice Mode
     if (mode === 'practice') {
-      this.spawnObstacle('gate', -65, 0);
-      this.spawnPowerUp('shield', -92, -3.5);
-      this.spawnPowerUp('turbo', -115, 3.5);
+      this.spawnObstacle('gate', -68, 0);
+      this.spawnPowerUp('shield', -96, -3.5);
+      this.spawnPowerUp('turbo', -120, 3.5);
       this.callbacks.onAnnounce(
         'Mode Latihan dimulai. Miringkan perangkat ke kiri atau kanan, atau gunakan tombol panah untuk mengemudikan pesawat.',
       );
     } else {
-      this.spawnObstacle('gate', -70, 0);
-      this.callbacks.onAnnounce(`Penerbangan dimulai di tema ${ENVIRONMENT_THEMES[this.currentThemeId].name}.`);
+      this.spawnObstacle('gate', -72, 0);
+      this.callbacks.onAnnounce(
+        `Penerbangan dimulai dengan ${planeStats.name} di tema ${ENVIRONMENT_THEMES[this.currentThemeId].name}.`,
+      );
     }
 
     this.emitHudSnapshot(0, 0, 'keyboard');
@@ -789,8 +847,12 @@ export class FlightWorldEngine {
   public returnToMenu(): void {
     this.runningState = 'menu';
     this.hasShield = false;
+    this.armorRemaining = 0;
     this.turboRemaining = 0;
+    this.boosterActiveRemaining = 0;
+    this.boosterCooldownRemaining = 0;
     this.plane.shieldMesh.visible = false;
+    this.plane.armorMesh.visible = false;
     this.plane.root.visible = true;
     for (const ob of this.obstacles) {
       ob.active = false;
@@ -813,12 +875,12 @@ export class FlightWorldEngine {
     if (!forcedKind) {
       const r = Math.random();
       if (this.gameMode === 'practice') {
-        kind = r < 0.55 ? 'gate' : 'pillar';
-      } else if (difficulty >= 4 && r < 0.24) {
+        kind = r < 0.6 ? 'gate' : 'pillar';
+      } else if (difficulty >= 4 && r < 0.18) {
         kind = 'turbine';
-      } else if (difficulty >= 2 && r < 0.52) {
+      } else if (difficulty >= 2 && r < 0.36) {
         kind = 'mover';
-      } else if (r < 0.78) {
+      } else if (r < 0.72) {
         kind = 'pillar';
       } else {
         kind = 'gate';
@@ -830,9 +892,9 @@ export class FlightWorldEngine {
     unit.z = forcedZ ?? SPAWN_Z;
     unit.gateScored = false;
     unit.oscPhase = Math.random() * Math.PI * 2;
-    unit.oscAmp = kind === 'mover' ? 2.5 + Math.min(2.5, difficulty * 0.35) : 0;
-    unit.oscSpeed = kind === 'mover' ? 1.5 + Math.min(1.4, difficulty * 0.16) : 0;
-    unit.spinSpeed = kind === 'turbine' ? 2.0 + difficulty * 0.2 : 0;
+    unit.oscAmp = kind === 'mover' ? 2.0 + Math.min(2.0, difficulty * 0.28) : 0;
+    unit.oscSpeed = kind === 'mover' ? 1.15 + Math.min(1.1, difficulty * 0.12) : 0;
+    unit.spinSpeed = kind === 'turbine' ? 1.7 + difficulty * 0.16 : 0;
 
     unit.centerMesh.visible = kind === 'pillar' || kind === 'mover' || kind === 'turbine';
     unit.spinnerGroup.visible = kind === 'turbine';
@@ -841,17 +903,17 @@ export class FlightWorldEngine {
     unit.topArch.visible = kind === 'gate';
 
     if (kind === 'gate') {
-      const gapHalf = Math.max(2.9, 4.4 - difficulty * 0.16);
+      const gapHalf = Math.max(3.2, 4.7 - difficulty * 0.12);
       unit.gateGapHalf = gapHalf;
       unit.halfWidth = gapHalf + 1.2;
       unit.baseX =
-        forcedX ?? (Math.random() - 0.5) * (CORRIDOR_HALF_WIDTH - gapHalf - 2.0) * 1.6;
+        forcedX ?? (Math.random() - 0.5) * (CORRIDOR_HALF_WIDTH - gapHalf - 2.0) * 1.5;
       unit.leftPillar.position.x = -gapHalf - 0.85;
       unit.rightPillar.position.x = gapHalf + 0.85;
       unit.topArch.scale.x = (gapHalf + 0.85) * 2 + 1.6;
     } else {
       unit.gateGapHalf = 0;
-      unit.halfWidth = kind === 'turbine' ? 1.55 : 1.05;
+      unit.halfWidth = kind === 'turbine' ? 1.5 : 1.05;
       const range = CORRIDOR_HALF_WIDTH - 2.2;
       unit.baseX = forcedX ?? (Math.random() - 0.5) * range * 2;
     }
@@ -905,7 +967,8 @@ export class FlightWorldEngine {
 
   private getDifficultyLevel(): number {
     if (this.gameMode === 'practice') return 1;
-    return 1 + Math.floor(this.distance / 320);
+    // Gentler progression: level rises every 650m instead of 320m
+    return 1 + Math.floor(this.distance / 650);
   }
 
   private getPracticeGuidance(): { step: number; message: string } {
@@ -1040,25 +1103,37 @@ export class FlightWorldEngine {
       }
     }
 
-    // Turbo countdown
+    // Turbo & Active Booster countdown
     const turboActive = this.turboRemaining > 0;
     if (turboActive) {
       this.turboRemaining = Math.max(0, this.turboRemaining - dt);
     }
+
+    const boosterActive = this.boosterActiveRemaining > 0;
+    if (boosterActive) {
+      this.boosterActiveRemaining = Math.max(0, this.boosterActiveRemaining - dt);
+      if (this.boosterActiveRemaining <= 0) {
+        this.boosterCooldownRemaining = this.planeStats.boosterCooldown;
+      }
+    } else if (this.boosterCooldownRemaining > 0) {
+      this.boosterCooldownRemaining = Math.max(0, this.boosterCooldownRemaining - dt);
+    }
+
     if (this.invulnTimer > 0) {
       this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     }
 
-    // Speed ramp
+    // Gentler Speed ramp modulated by plane class & upgrades
     const baseTargetSpeed =
-      this.gameMode === 'practice'
-        ? 23
-        : Math.min(62, 29 + (difficulty - 1) * 3.8);
-    const targetSpeed = turboActive ? baseTargetSpeed * 1.52 : baseTargetSpeed;
+      (this.gameMode === 'practice'
+        ? 20
+        : Math.min(48, 24 + (difficulty - 1) * 2.1)) * this.planeStats.speedMultiplier;
+    const surgeFactor = turboActive || boosterActive ? 1.48 : 1.0;
+    const targetSpeed = baseTargetSpeed * surgeFactor;
     this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 4.5, dt);
 
     // Lateral steering (left-right only!)
-    const maxLateralSpeed = 19.5;
+    const maxLateralSpeed = 18.5 * this.planeStats.lateralAgility;
     const targetVelX = steer * maxLateralSpeed;
     this.planeVelX = THREE.MathUtils.damp(this.planeVelX, targetVelX, 11.5, dt);
     this.planeX += this.planeVelX * dt;
@@ -1089,16 +1164,22 @@ export class FlightWorldEngine {
       this.plane.bodyGroup.visible = true;
     }
 
-    // Shield & Turbo visuals
+    // Shield, Armor & Turbo visuals
     this.plane.shieldMesh.visible = this.hasShield;
     if (this.hasShield) {
       this.plane.shieldMesh.rotation.y += dt * 1.4;
       this.plane.shieldMesh.rotation.x += dt * 0.7;
     }
-    const flameTarget = turboActive ? 1.55 + Math.sin(elapsed * 28) * 0.25 : 0.45 + (this.forwardSpeed / 65) * 0.4;
+    this.plane.armorMesh.visible = this.armorRemaining > 0 && !this.hasShield;
+    if (this.plane.armorMesh.visible) {
+      this.plane.armorMesh.rotation.z += dt * 0.9;
+    }
+
+    const boostFlame = turboActive || boosterActive;
+    const flameTarget = boostFlame ? 1.65 + Math.sin(elapsed * 28) * 0.25 : 0.45 + (this.forwardSpeed / 65) * 0.4;
     this.plane.turboFlame.scale.set(
-      turboActive ? 1.25 : 0.75,
-      turboActive ? 1.25 : 0.75,
+      boostFlame ? 1.28 : 0.75,
+      boostFlame ? 1.28 : 0.75,
       flameTarget,
     );
 
@@ -1108,26 +1189,26 @@ export class FlightWorldEngine {
     this.groundTex.offset.y -= dt * (this.forwardSpeed * 0.048);
 
     // Audio dynamic intensity
-    const normIntensity = THREE.MathUtils.clamp((this.forwardSpeed - 24) / 36, 0, 1);
-    soundEngine.setFlightDynamics(normIntensity, turboActive, steer);
+    const normIntensity = THREE.MathUtils.clamp((this.forwardSpeed - 22) / 36, 0, 1);
+    soundEngine.setFlightDynamics(normIntensity, boostFlame, steer);
 
-    // Spawn Obstacles & PowerUps
+    // Spawn Obstacles & PowerUps (gentler spacing)
     const spawnSpacing =
       this.gameMode === 'practice'
-        ? 36
-        : Math.max(21, 34 - (difficulty - 1) * 1.45);
+        ? 42
+        : Math.max(25, 41 - (difficulty - 1) * 1.15);
     this.spawnDistanceAccum += dz;
     if (this.spawnDistanceAccum >= spawnSpacing) {
       this.spawnDistanceAccum = 0;
       this.spawnObstacle();
-      // Sometimes spawn a second flanking pillar at higher difficulty
-      if (this.gameMode === 'standard' && difficulty >= 3 && Math.random() < 0.35) {
+      // Flanking pillar only at higher difficulty
+      if (this.gameMode === 'standard' && difficulty >= 4 && Math.random() < 0.24) {
         this.spawnObstacle('pillar', SPAWN_Z - 4);
       }
     }
 
     this.powerUpSpawnAccum += dz;
-    if (this.powerUpSpawnAccum >= (this.gameMode === 'practice' ? 38 : 54)) {
+    if (this.powerUpSpawnAccum >= (this.gameMode === 'practice' ? 38 : 52)) {
       this.powerUpSpawnAccum = 0;
       this.spawnPowerUp();
     }
@@ -1154,6 +1235,7 @@ export class FlightWorldEngine {
           if (this.combo > this.maxCombo) this.maxCombo = this.combo;
           const pts = 100 * Math.min(this.combo, 5);
           this.bonusScore += pts;
+          this.runEarnedPoints += this.gameMode === 'practice' ? 4 : 15 + Math.min(10, this.combo * 2);
           soundEngine.playGatePass(this.combo);
           this.emitParticles(this.planeX, PLANE_Y + 0.3, -0.5, 0x38bdf8, 10);
           if (this.gameMode === 'practice' && this.practiceStep === 1) {
@@ -1211,8 +1293,8 @@ export class FlightWorldEngine {
     // Scroll instanced scenery
     this.scrollScenery(this.forwardSpeed, dt);
 
-    // Camera Follow + Turbo FOV
-    const targetFov = turboActive ? 77 : 65 + Math.min(6, (difficulty - 1) * 1.1);
+    // Camera Follow + Turbo/Booster FOV
+    const targetFov = boostFlame ? 77 : 65 + Math.min(5, (difficulty - 1) * 0.9);
     this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 5.5, dt);
     this.camera.updateProjectionMatrix();
 
@@ -1269,17 +1351,20 @@ export class FlightWorldEngine {
     if (pu.kind === 'turbo') {
       this.turboRemaining = this.turboDuration;
       this.bonusScore += 150;
+      this.runEarnedPoints += this.gameMode === 'practice' ? 5 : 20;
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xf59e0b, 16);
       this.callbacks.onAnnounce('Power-up Turbo Boost aktif! Kecepatan meningkat dan skor ganda.');
     } else if (pu.kind === 'shield') {
       this.hasShield = true;
       this.bonusScore += 100;
+      this.runEarnedPoints += this.gameMode === 'practice' ? 5 : 20;
       this.emitParticles(this.planeX, PLANE_Y, 0, 0x2dd4bf, 16);
       this.callbacks.onAnnounce('Perisai Energi aktif! Pesawat terlindungi dari satu benturan.');
     } else {
       this.combo += 1;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
       this.bonusScore += 150 * Math.min(this.combo, 5);
+      this.runEarnedPoints += this.gameMode === 'practice' ? 8 : 35;
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xfacc15, 14);
     }
 
@@ -1290,33 +1375,74 @@ export class FlightWorldEngine {
   }
 
   private handleObstacleImpact(ob: ObstacleUnit): void {
+    // 1. Energy Shield Power-up absorbs hit first
     if (this.hasShield) {
-      // Shield absorbs hit!
       this.hasShield = false;
-      this.invulnTimer = 1.4;
+      this.invulnTimer = 1.6;
       this.hitstopTimer = 0.055;
       this.shakeIntensity = 0.45;
       ob.active = false;
       ob.group.visible = false;
       soundEngine.playShieldDeflect();
       this.emitParticles(this.planeX, PLANE_Y, 0, 0x2dd4bf, 24);
-      this.callbacks.onAnnounce('Benturan ditahan oleh perisai! Perisai kini nonaktif.');
+      this.callbacks.onAnnounce('Benturan ditahan oleh Perisai Energi!');
+      const { tiltDeg, steer, source } = this.input.sample();
+      this.emitHudSnapshot(tiltDeg, steer, source);
       return;
     }
 
+    // 2. Built-in / Upgraded Plane Armor ("Tabrak 1 Gawang Aman") absorbs hit without losing a life!
+    if (this.armorRemaining > 0) {
+      this.armorRemaining -= 1;
+      this.invulnTimer = 1.6;
+      this.hitstopTimer = 0.055;
+      this.shakeIntensity = 0.42;
+      ob.active = false;
+      ob.group.visible = false;
+      this.plane.armorMesh.visible = this.armorRemaining > 0;
+      soundEngine.playShieldDeflect();
+      this.emitParticles(this.planeX, PLANE_Y, 0, 0xf59e0b, 22);
+      this.callbacks.onAnnounce(
+        `Pelindung rangka menahan benturan! Aman! Sisa pelindung: ${this.armorRemaining}.`,
+      );
+      const { tiltDeg, steer, source } = this.input.sample();
+      this.emitHudSnapshot(tiltDeg, steer, source);
+      return;
+    }
+
+    // 3. Practice Mode: safe coaching bounce
     if (this.gameMode === 'practice') {
-      // Practice mode: gentle bounce & coaching tip, no Game Over
       this.invulnTimer = 1.6;
       this.hitstopTimer = 0.04;
       this.shakeIntensity = 0.3;
       this.combo = 0;
+      ob.active = false;
+      ob.group.visible = false;
       soundEngine.playShieldDeflect();
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xfbbf24, 14);
       this.callbacks.onAnnounce('Menabrak rintangan di Mode Latihan. Coba miringkan lebih awal untuk menghindar.');
       return;
     }
 
-    // Standard Competitive Mode: Game Over
+    // 4. Standard Mode with remaining Lives (> 1): lose 1 life and keep flying!
+    if (this.lives > 1) {
+      this.lives -= 1;
+      this.combo = 0;
+      this.invulnTimer = 1.85;
+      this.hitstopTimer = 0.06;
+      this.shakeIntensity = 0.65;
+      ob.active = false;
+      ob.group.visible = false;
+      soundEngine.playDamage();
+      this.emitParticles(this.planeX, PLANE_Y, 0, 0xf87171, 20);
+      this.callbacks.onAnnounce(`Benturan! Sisa nyawa ${this.lives} dari ${this.planeStats.maxLives}.`);
+      const { tiltDeg, steer, source } = this.input.sample();
+      this.emitHudSnapshot(tiltDeg, steer, source);
+      return;
+    }
+
+    // 5. Final Life Lost -> Game Over
+    this.lives = 0;
     this.runningState = 'gameover';
     this.hitstopTimer = 0.07;
     this.shakeIntensity = 0.75;
@@ -1326,24 +1452,36 @@ export class FlightWorldEngine {
     this.emitParticles(this.planeX, PLANE_Y, 0, 0xf87171, 28);
 
     const finalScore = this.computeTotalScore();
-    const { source } = this.input.sample();
+    const earnedPoints = this.computeEarnedPoints();
+    const { tiltDeg, steer, source } = this.input.sample();
+    this.emitHudSnapshot(tiltDeg, steer, source);
+
     const summary: GameOverSummary = {
       score: finalScore,
       distance: Math.round(this.distance),
       maxCombo: this.maxCombo,
       powerUpsCollected: this.powerUpsCollected,
+      pointsEarned: earnedPoints,
+      planeId: this.planeStats.planeId,
       themeId: this.currentThemeId,
       controlUsed: source,
       mode: this.gameMode,
       isNewBest: finalScore > this.bestScore,
     };
-    this.callbacks.onAnnounce(`Permainan selesai. Skor akhir ${finalScore} poin, jarak ${summary.distance} meter.`);
+    this.callbacks.onAnnounce(
+      `Permainan selesai. Skor akhir ${finalScore}, jarak ${summary.distance} meter, mendapat ${earnedPoints} poin.`,
+    );
     this.callbacks.onGameOver(summary);
   }
 
   private computeTotalScore(): number {
-    const multiplier = this.turboRemaining > 0 ? 1.5 : 1;
+    const multiplier = this.turboRemaining > 0 || this.boosterActiveRemaining > 0 ? 1.5 : 1;
     return Math.round(this.distance * 2.5 * multiplier + this.bonusScore);
+  }
+
+  private computeEarnedPoints(): number {
+    const distancePoints = Math.floor(this.distance / (this.gameMode === 'practice' ? 80 : 25));
+    return Math.max(this.gameMode === 'standard' ? 10 : 0, this.runEarnedPoints + distancePoints);
   }
 
   private emitHudSnapshot(tiltDeg: number, steer: number, source: 'gyro' | 'keyboard' | 'touch'): void {
@@ -1354,9 +1492,18 @@ export class FlightWorldEngine {
       speedKmh: Math.round(this.forwardSpeed * 9.2),
       difficultyLevel: this.getDifficultyLevel(),
       combo: this.combo,
+      lives: this.lives,
+      maxLives: this.planeStats.maxLives,
+      armorRemaining: this.armorRemaining,
+      pointsEarned: this.computeEarnedPoints(),
       hasShield: this.hasShield,
       turboRemaining: this.turboRemaining,
       turboDuration: this.turboDuration,
+      hasBooster: this.planeStats.hasBooster,
+      boosterActiveRemaining: this.boosterActiveRemaining,
+      boosterCooldownRemaining: this.boosterCooldownRemaining,
+      boosterCooldownTotal: this.planeStats.boosterCooldown,
+      planeId: this.planeStats.planeId,
       tiltAngleDeg: tiltDeg,
       steerInput: steer,
       activeControl: source,
@@ -1372,6 +1519,7 @@ export class FlightWorldEngine {
     window.clearTimeout(this.frameId);
 
     window.removeEventListener('resize', this.onResizeBound);
+    window.removeEventListener('keydown', this.onKeyDownBound);
     this.renderer.domElement.removeEventListener('touchstart', this.onTouchStartBound);
     this.renderer.domElement.removeEventListener('touchmove', this.onTouchMoveBound);
     this.renderer.domElement.removeEventListener('touchend', this.onTouchEndBound);

@@ -262,6 +262,41 @@ class ProceduralAudioEngine {
     osc.stop(now + 0.3);
   }
 
+  public playBooster(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain || this.muted) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(720, now + 0.24);
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+
+  public playDamage(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.sfxGain || this.muted) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(240, now);
+    osc.frequency.exponentialRampToValueAtTime(95, now + 0.2);
+    gain.gain.setValueAtTime(0.22, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.24);
+  }
+
   public playCrash(): void {
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain || this.muted) return;

@@ -12,6 +12,37 @@ export type ControlSource = 'gyro' | 'keyboard' | 'touch';
 
 export type PowerUpType = 'turbo' | 'shield' | 'bonus';
 
+export type PlaneId = 'titan' | 'vortex' | 'balance';
+
+export interface PlayerUpgrades {
+  titanStrength: number; // 0..2 extra armor hits (base 1 + titanStrength)
+  vortexSpeed: number; // 0..3 speed upgrades
+  vortexBooster: number; // 0..3 booster upgrades
+  balanceStrength: number; // 0..3 armor hits (0..3 safe hits)
+  balanceSpeed: number; // 0..3 speed upgrades
+  balanceBooster: number; // 0..3 (0 = locked, 1..3 = unlocked + upgraded)
+}
+
+export interface PlayerProgress {
+  points: number;
+  selectedPlane: PlaneId;
+  maxLivesBonus: number; // 0..3 => total 3..6 lives
+  upgrades: PlayerUpgrades;
+}
+
+export interface EffectivePlaneStats {
+  planeId: PlaneId;
+  name: string;
+  roleLabel: string;
+  maxLives: number;
+  startingArmor: number;
+  speedMultiplier: number;
+  lateralAgility: number;
+  hasBooster: boolean;
+  boosterDuration: number;
+  boosterCooldown: number;
+}
+
 export interface GameSettings {
   gyroEnabled: boolean;
   gyroSensitivity: number; // 0.5 to 2.5
@@ -40,9 +71,18 @@ export interface HudSnapshot {
   speedKmh: number;
   difficultyLevel: number;
   combo: number;
+  lives: number;
+  maxLives: number;
+  armorRemaining: number;
+  pointsEarned: number;
   hasShield: boolean;
   turboRemaining: number; // seconds remaining
   turboDuration: number;
+  hasBooster: boolean;
+  boosterActiveRemaining: number;
+  boosterCooldownRemaining: number;
+  boosterCooldownTotal: number;
+  planeId: PlaneId;
   tiltAngleDeg: number; // live left/right gyro or steering tilt
   steerInput: number; // -1 to 1
   activeControl: ControlSource;
@@ -56,6 +96,8 @@ export interface GameOverSummary {
   distance: number;
   maxCombo: number;
   powerUpsCollected: number;
+  pointsEarned: number;
+  planeId: PlaneId;
   themeId: ThemeId;
   controlUsed: ControlSource;
   mode: GameMode;

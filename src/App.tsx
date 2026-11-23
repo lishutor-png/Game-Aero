@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlightWorldEngine } from './game/worldEngine';
 import { soundEngine } from './game/audio';
+import {
+  BALANCE_BOOSTER_COSTS,
+  BALANCE_SPEED_COSTS,
+  BALANCE_STRENGTH_COSTS,
+  DEFAULT_PROGRESS,
+  MAX_LIVES_COSTS,
+  MAX_LIVES_UPGRADE_CAP,
+  TITAN_STRENGTH_COSTS,
+  VORTEX_BOOSTER_COSTS,
+  VORTEX_SPEED_COSTS,
+  computeEffectivePlaneStats,
+} from './game/planes';
 import { SplashScreen } from './components/SplashScreen';
 import { MainMenu } from './components/MainMenu';
 import { GameHud } from './components/GameHud';
@@ -9,6 +21,7 @@ import { GameOverModal } from './components/GameOverModal';
 import { SettingsModal } from './components/SettingsModal';
 import { AccessibilityModal } from './components/AccessibilityModal';
 import { LeaderboardModal } from './components/LeaderboardModal';
+import { HangarModal } from './components/HangarModal';
 import { OfflineIndicator } from './components/PWAInstallButton';
 import type {
   AccessibilitySettings,
@@ -16,12 +29,16 @@ import type {
   GameOverSummary,
   GameSettings,
   HudSnapshot,
+  PlaneId,
+  PlayerProgress,
+  PlayerUpgrades,
   ScreenState,
 } from './types/game';
 
 const SETTINGS_KEY = 'aeroglide_settings_v1';
 const A11Y_KEY = 'aeroglide_a11y_v1';
 const BEST_KEY = 'aeroglide_best_score_v1';
+const PROGRESS_KEY = 'aeroglide_progress_v1';
 
 const DEFAULT_SETTINGS: GameSettings = {
   gyroEnabled: true,
@@ -48,18 +65,36 @@ const DEFAULT_A11Y: AccessibilitySettings = {
 const INITIAL_HUD: HudSnapshot = {
   score: 0,
   distance: 0,
-  speedKmh: 250,
+  speedKmh: 220,
   difficultyLevel: 1,
   combo: 0,
+  lives: 3,
+  maxLives: 3,
+  armorRemaining: 0,
+  pointsEarned: 0,
   hasShield: false,
   turboRemaining: 0,
   turboDuration: 5.5,
+  hasBooster: false,
+  boosterActiveRemaining: 0,
+  boosterCooldownRemaining: 0,
+  boosterCooldownTotal: 0,
+  planeId: 'balance',
   tiltAngleDeg: 0,
   steerInput: 0,
   activeControl: 'keyboard',
   practiceStep: 0,
   practiceMessage: '',
   themeId: 'morning',
+};
+
+const UPGRADE_COST_MAP: Record<keyof PlayerUpgrades, number[]> = {
+  titanStrength: TITAN_STRENGTH_COSTS,
+  vortexSpeed: VORTEX_SPEED_COSTS,
+  vortexBooster: VORTEX_BOOSTER_COSTS,
+  balanceStrength: BALANCE_STRENGTH_COSTS,
+  balanceSpeed: BALANCE_SPEED_COSTS,
+  balanceBooster: BALANCE_BOOSTER_COSTS,
 };
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -69,6 +104,24 @@ function loadJson<T>(key: string, fallback: T): T {
     return { ...fallback, ...(JSON.parse(raw) as Partial<T>) };
   } catch {
     return fallback;
+  }
+}
+
+function loadProgress(): PlayerProgress {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    if (!raw) return DEFAULT_PROGRESS;
+    const parsed = JSON.parse(raw) as Partial<PlayerProgress>;
+    return {
+      ...DEFAULT_PROGRESS,
+      ...parsed,
+      upgrades: {
+        ...DEFAULT_PROGRESS.upgrades,
+        ...(parsed.upgrades ?? {}),
+      },
+    };
+  } catch {
+    return DEFAULT_PROGRESS;
   }
 }
 
@@ -82,6 +135,7 @@ export default function App() {
   const [accessibility, setAccessibility] = useState<AccessibilitySettings>(() =>
     loadJson(A11Y_KEY, DEFAULT_A11Y),
   );
+  const [progress, setProgress] = useState<PlayerProgress>(loadProgress);
   const [bestScore, setBestScore] = useState<number>(() => {
     try {
       const val = Number(localStorage.getItem(BEST_KEY) || '0');
@@ -91,9 +145,12 @@ export default function App() {
     }
   });
 
+  const bestScoreRef = useRef(bestScore);
+  bestScoreRef.current = bestScore;
+
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
   const [gameOverSummary, setGameOverSummary] = useState<GameOverSummary | null>(null);
-  const [activeModal, setActiveModal] = useState<'none' | 'settings' | 'accessibility' | 'leaderboard'>('none');
+  const [activeModal, setActiveModal] = useState<'none' | 'settings' | 'accessibility' | 'leaderboard' | 'hangar'>('none');
   const [announcement, setAnnouncement] = useState('');
 
   const announce = useCallback(
@@ -134,6 +191,14 @@ export default function App() {
     }
   }, [settings]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(PROGRESS_KEY, JSON.stringify(progress));
+    } catch {
+      // ignore
+    }
+  }, [progress]);
+
   // Apply live settings to 3D engine
   useEffect(() => {
     engineRef.current?.applySettings(settings, {
@@ -155,9 +220,19 @@ export default function App() {
       {
         onHudUpdate: (snapshot) => setHud(snapshot),
         onGameOver: (summary) => {
+          setActiveModal('none');
           setGameOverSummary(summary);
           setScreen('gameover');
-          if (summary.mode === 'standard' && summary.score > bestScore) {
+
+          if (summary.pointsEarned > 0) {
+            setProgress((prev) => ({
+              ...prev,
+              points: prev.points + summary.pointsEarned,
+            }));
+          }
+
+          if (summary.mode === 'standard' && summary.score > bestScoreRef.current) {
+            bestScoreRef.current = summary.score;
             setBestScore(summary.score);
             engine.updateBestScore(summary.score);
             try {
@@ -172,6 +247,7 @@ export default function App() {
       bestScore,
     );
 
+    engine.setPlaneType(progress.selectedPlane);
     engine.applySettings(settings, {
       highContrast: accessibility.highContrast,
       reducedMotion: accessibility.reducedMotion,
@@ -207,17 +283,60 @@ export default function App() {
         // ignore where orientation lock is unsupported
       }
       if (settings.gyroEnabled && engineRef.current) {
-        // Non-blocking sensor permission / calibration on user gesture
         void engineRef.current.input.requestGyroPermission();
       }
+      const effectiveStats = computeEffectivePlaneStats(progress);
       setGameMode(mode);
       setGameOverSummary(null);
       setActiveModal('none');
       setScreen('playing');
-      engineRef.current?.startSession(mode, settings);
+      engineRef.current?.startSession(mode, settings, effectiveStats);
     },
-    [settings],
+    [progress, settings],
   );
+
+  const handleSelectPlane = useCallback(
+    (planeId: PlaneId) => {
+      soundEngine.playUiClick();
+      setProgress((prev) => ({ ...prev, selectedPlane: planeId }));
+      engineRef.current?.setPlaneType(planeId);
+      announce(`Pesawat diganti ke ${planeId}.`);
+    },
+    [announce],
+  );
+
+  const handleBuyMaxLife = useCallback(() => {
+    setProgress((prev) => {
+      if (prev.maxLivesBonus >= MAX_LIVES_UPGRADE_CAP) return prev;
+      const cost = MAX_LIVES_COSTS[prev.maxLivesBonus];
+      if (prev.points < cost) return prev;
+      soundEngine.playPowerUp('shield');
+      return {
+        ...prev,
+        points: prev.points - cost,
+        maxLivesBonus: prev.maxLivesBonus + 1,
+      };
+    });
+  }, []);
+
+  const handleBuyUpgrade = useCallback((key: keyof PlayerUpgrades) => {
+    setProgress((prev) => {
+      const costs = UPGRADE_COST_MAP[key];
+      const currentLv = prev.upgrades[key];
+      if (currentLv >= costs.length) return prev;
+      const cost = costs[currentLv];
+      if (prev.points < cost) return prev;
+      soundEngine.playPowerUp('turbo');
+      return {
+        ...prev,
+        points: prev.points - cost,
+        upgrades: {
+          ...prev.upgrades,
+          [key]: currentLv + 1,
+        },
+      };
+    });
+  }, []);
 
   const handlePause = useCallback(() => {
     soundEngine.playUiClick();
@@ -236,10 +355,11 @@ export default function App() {
   const handleExitToMenu = useCallback(() => {
     soundEngine.playUiClick();
     engineRef.current?.returnToMenu();
+    engineRef.current?.setPlaneType(progress.selectedPlane);
     setGameOverSummary(null);
     setScreen('menu');
     announce('Kembali ke Menu Utama.');
-  }, [announce]);
+  }, [announce, progress.selectedPlane]);
 
   const handleCalibrate = useCallback(() => {
     soundEngine.playUiClick();
@@ -304,10 +424,16 @@ export default function App() {
         <MainMenu
           settings={settings}
           accessibility={accessibility}
+          progress={progress}
           bestScore={bestScore}
           currentThemeId={settings.selectedTheme}
+          hasOpenModal={activeModal !== 'none'}
           onStartGame={() => void startFlight('standard')}
           onStartPractice={() => void startFlight('practice')}
+          onOpenHangar={() => {
+            soundEngine.playUiClick();
+            setActiveModal('hangar');
+          }}
           onOpenSettings={() => {
             soundEngine.playUiClick();
             setActiveModal('settings');
@@ -338,6 +464,9 @@ export default function App() {
           onPause={handlePause}
           onToggleMute={handleToggleMute}
           onCalibrate={handleCalibrate}
+          onActivateBooster={() => {
+            engineRef.current?.activateBooster();
+          }}
         />
       )}
 
@@ -359,14 +488,33 @@ export default function App() {
       {screen === 'gameover' && gameOverSummary && activeModal === 'none' && (
         <GameOverModal
           summary={gameOverSummary}
+          totalPoints={progress.points}
           defaultPilotName={settings.pilotName}
           onUpdatePilotName={(name) => setSettings((prev) => ({ ...prev, pilotName: name }))}
           onRetry={() => void startFlight(gameMode)}
+          onOpenHangar={() => {
+            soundEngine.playUiClick();
+            setActiveModal('hangar');
+          }}
           onOpenLeaderboard={() => {
             soundEngine.playUiClick();
             setActiveModal('leaderboard');
           }}
           onExitToMenu={handleExitToMenu}
+        />
+      )}
+
+      {/* Hangar & Upgrade Shop Modal */}
+      {activeModal === 'hangar' && (
+        <HangarModal
+          progress={progress}
+          onSelectPlane={handleSelectPlane}
+          onBuyMaxLife={handleBuyMaxLife}
+          onBuyUpgrade={handleBuyUpgrade}
+          onClose={() => {
+            soundEngine.playUiClick();
+            setActiveModal('none');
+          }}
         />
       )}
 

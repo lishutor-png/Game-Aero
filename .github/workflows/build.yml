@@ -101,6 +101,7 @@ jobs:
             sed -i 's/<activity\([[:space:]]\|$\)/<activity android:screenOrientation="sensorLandscape"\1/' "$MANIFEST"
           fi
           if [ -f "public/pwa-512x512.png" ]; then
+            rm -rf android/app/src/main/res/mipmap-anydpi-v26 || true
             for dir in android/app/src/main/res/mipmap-*dpi; do
               if [ -d "$dir" ]; then
                 cp public/pwa-512x512.png "$dir/ic_launcher.png" || true
