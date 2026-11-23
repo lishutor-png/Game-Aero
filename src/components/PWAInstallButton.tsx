@@ -91,7 +91,7 @@ export function PWAInstallButton() {
                 <p>
                   {isAndroid
                     ? 'Anda dapat langsung memasang AeroGlide 3D ke layar utama Android dengan mode layar penuh dan dukungan offline:'
-                    : 'Buka tautan aplikasi ini di Chrome Android untuk memasangnya seperti aplikasi native (layar penuh & sensor giroskop aktif):'}
+                    : 'Buka tautan aplikasi ini di Chrome Android untuk memasangnya seperti aplikasi native (layar penuh & mode offline):'}
                 </p>
                 <ol className="space-y-1.5 list-decimal list-inside">
                   <li>Buka URL aplikasi di <strong>Google Chrome Android</strong> (bukan pratinjau tersemat).</li>

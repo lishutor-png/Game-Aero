@@ -8,25 +8,35 @@ export type GraphicsQuality = 'auto' | 'light' | 'high';
 
 export type TextScale = 'normal' | 'large' | 'xlarge';
 
-export type ControlSource = 'gyro' | 'keyboard' | 'touch';
+export type ControlSource = 'keyboard' | 'touch';
 
-export type PowerUpType = 'turbo' | 'shield' | 'bonus';
+export type PowerUpType = 'turbo' | 'shield' | 'bonus' | 'heart';
 
 export type PlaneId = 'titan' | 'vortex' | 'balance';
 
 export interface PlayerUpgrades {
-  titanStrength: number; // 0..2 extra armor hits (base 1 + titanStrength)
-  vortexSpeed: number; // 0..3 speed upgrades
-  vortexBooster: number; // 0..3 booster upgrades
-  balanceStrength: number; // 0..3 armor hits (0..3 safe hits)
-  balanceSpeed: number; // 0..3 speed upgrades
-  balanceBooster: number; // 0..3 (0 = locked, 1..3 = unlocked + upgraded)
+  titanShield: number; // 0..2 => total 1..3 Pelindung
+  titanStrength: number; // 0..10
+  titanSpeed: number; // 0..10
+  titanAgility: number; // 0..10
+  titanRecharge: number; // 0..10 => 30s..10s
+  vortexJet: number; // 0..2 => total 1..3 Jet
+  vortexStrength: number; // 0..10
+  vortexSpeed: number; // 0..10
+  vortexAgility: number; // 0..10
+  vortexRecharge: number; // 0..10 => 30s..10s
+  balanceShield: number; // 0..1 => total 0..1 Pelindung
+  balanceJet: number; // 0..1 => total 0..1 Jet
+  balanceStrength: number; // 0..10
+  balanceSpeed: number; // 0..10
+  balanceAgility: number; // 0..10
+  balanceRecharge: number; // 0..10 => 30s..10s
 }
 
 export interface PlayerProgress {
   points: number;
   selectedPlane: PlaneId;
-  maxLivesBonus: number; // 0..3 => total 3..6 lives
+  heartsBonus: Record<PlaneId, number>; // per-plane hearts bonus (base 2 for all)
   upgrades: PlayerUpgrades;
 }
 
@@ -35,19 +45,20 @@ export interface EffectivePlaneStats {
   name: string;
   roleLabel: string;
   maxLives: number;
-  startingArmor: number;
+  maxArmorCharges: number;
+  maxJetCharges: number;
+  rechargeIntervalSec: number; // 30s at Lv.0 -> 10s at Lv.10
   speedMultiplier: number;
   lateralAgility: number;
-  hasBooster: boolean;
   boosterDuration: number;
-  boosterCooldown: number;
+  maxDurabilityPerLife: number;
+  strengthRating: number; // 1..10
+  speedRating: number; // 1..10
+  agilityRating: number; // 1..10
 }
 
 export interface GameSettings {
-  gyroEnabled: boolean;
-  gyroSensitivity: number; // 0.5 to 2.5
-  gyroDeadzone: number; // degrees, e.g. 2 to 8
-  invertGyro: boolean;
+  steeringSensitivity: number; // 0.6 to 2.0
   randomThemePerSession: boolean;
   selectedTheme: ThemeId;
   graphicsQuality: GraphicsQuality;
@@ -73,17 +84,21 @@ export interface HudSnapshot {
   combo: number;
   lives: number;
   maxLives: number;
+  durability: number;
+  maxDurability: number;
   armorRemaining: number;
+  maxArmor: number;
+  armorRechargeRemaining: number;
+  jetCharges: number;
+  maxJetCharges: number;
+  jetRechargeRemaining: number;
+  rechargeIntervalSec: number;
   pointsEarned: number;
   hasShield: boolean;
   turboRemaining: number; // seconds remaining
   turboDuration: number;
-  hasBooster: boolean;
   boosterActiveRemaining: number;
-  boosterCooldownRemaining: number;
-  boosterCooldownTotal: number;
   planeId: PlaneId;
-  tiltAngleDeg: number; // live left/right gyro or steering tilt
   steerInput: number; // -1 to 1
   activeControl: ControlSource;
   practiceStep: number; // 0, 1, 2, 3

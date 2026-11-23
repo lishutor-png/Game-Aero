@@ -1,35 +1,18 @@
-import { useState } from 'react';
-import { X, Compass, Smartphone, Shuffle, Cpu, Volume2 } from 'lucide-react';
+import { X, Hand, Shuffle, Cpu, Volume2 } from 'lucide-react';
 import { ENVIRONMENT_THEMES, THEME_IDS } from '../game/themes';
 import type { GameSettings, GraphicsQuality, ThemeId } from '../types/game';
 
 interface SettingsModalProps {
   settings: GameSettings;
   onChange: (next: GameSettings) => void;
-  onRequestGyro: () => Promise<string>;
-  onCalibrate: () => void;
   onClose: () => void;
 }
 
 export function SettingsModal({
   settings,
   onChange,
-  onRequestGyro,
-  onCalibrate,
   onClose,
 }: SettingsModalProps) {
-  const [sensorStatus, setSensorStatus] = useState<string>('');
-
-  const handleEnableSensor = async () => {
-    const msg = await onRequestGyro();
-    setSensorStatus(msg);
-  };
-
-  const handleCalibrate = () => {
-    onCalibrate();
-    setSensorStatus('Posisi tengah giroskop berhasil dikalibrasi.');
-  };
-
   return (
     <div
       role="dialog"
@@ -52,7 +35,7 @@ export function SettingsModal({
               Pengaturan Permainan
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--ui-text-muted)' }}>
-              Atur sensor giroskop, tema lingkungan, performa, dan audio
+              Atur sensitivitas kemudi sentuh/tombol, tema lingkungan, performa, dan audio
             </p>
           </div>
           <button
@@ -92,123 +75,43 @@ export function SettingsModal({
             />
           </div>
 
-          {/* Gyroscope Sensor Section */}
-          <section aria-labelledby="gyro-section-title" className="space-y-3">
+          {/* Touch & Keyboard Steering Section */}
+          <section aria-labelledby="steering-section-title" className="space-y-3">
             <div className="flex items-center gap-2">
-              <Smartphone className="w-4 h-4" style={{ color: 'var(--ui-accent)' }} aria-hidden="true" />
-              <h3 id="gyro-section-title" className="text-sm font-bold uppercase tracking-wider">
-                Sensor Giroskop (Kiri &amp; Kanan)
+              <Hand className="w-4 h-4" style={{ color: 'var(--ui-accent)' }} aria-hidden="true" />
+              <h3 id="steering-section-title" className="text-sm font-bold uppercase tracking-wider">
+                Kendali Kemudi (Sentuh &amp; Keyboard)
               </h3>
             </div>
 
-            <label className="flex items-center justify-between gap-3 p-3 rounded-xl border cursor-pointer" style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-surface)' }}>
-              <div>
-                <div className="text-sm font-semibold">Aktifkan Kontrol Giroskop</div>
-                <div className="text-xs" style={{ color: 'var(--ui-text-muted)' }}>
-                  Miringkan perangkat ke kiri/kanan untuk mengarahkan pesawat
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.gyroEnabled}
-                onChange={(e) => onChange({ ...settings, gyroEnabled: e.target.checked })}
-                className="w-5 h-5 accent-sky-600"
-              />
-            </label>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handleEnableSensor}
-                className="a11y-focus inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer"
-                style={{
-                  backgroundColor: 'var(--ui-accent)',
-                  color: 'var(--ui-accent-text)',
-                }}
-              >
-                <Smartphone className="w-4 h-4" aria-hidden="true" />
-                <span>Izinkan / Tes Sensor</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleCalibrate}
-                className="a11y-focus inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border cursor-pointer"
-                style={{
-                  backgroundColor: 'var(--ui-surface)',
-                  borderColor: 'var(--ui-border)',
-                  color: 'var(--ui-text)',
-                }}
-              >
-                <Compass className="w-4 h-4" aria-hidden="true" />
-                <span>Kalibrasi Posisi Tengah</span>
-              </button>
-            </div>
-
-            {sensorStatus && (
-              <p role="status" className="text-xs font-medium px-3 py-2 rounded-lg" style={{ backgroundColor: 'var(--ui-surface-muted)' }}>
-                {sensorStatus}
-              </p>
-            )}
-
-            {/* Sensitivity Slider */}
             <div className="p-3 rounded-xl border space-y-2" style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-surface)' }}>
               <div className="flex items-center justify-between text-sm">
-                <label htmlFor="gyro-sens-slider" className="font-semibold">
-                  Sensitivitas Kemiringan
+                <label htmlFor="steer-sens-slider" className="font-semibold">
+                  Sensitivitas Kemudi Kiri/Kanan
                 </label>
                 <span className="font-bold tabular-nums" style={{ color: 'var(--ui-accent)' }}>
-                  {settings.gyroSensitivity.toFixed(2)}x
+                  {settings.steeringSensitivity.toFixed(2)}x
                 </span>
               </div>
               <input
-                id="gyro-sens-slider"
+                id="steer-sens-slider"
                 type="range"
-                min="0.5"
-                max="2.5"
+                min="0.6"
+                max="2.0"
                 step="0.05"
-                value={settings.gyroSensitivity}
-                onChange={(e) => onChange({ ...settings, gyroSensitivity: parseFloat(e.target.value) })}
+                value={settings.steeringSensitivity}
+                onChange={(e) => onChange({ ...settings, steeringSensitivity: parseFloat(e.target.value) })}
                 className="w-full accent-sky-600 cursor-pointer"
               />
               <div className="flex justify-between text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>
-                <span>Halus (0.5x)</span>
-                <span>Standar (1.25x)</span>
-                <span>Responsif (2.5x)</span>
+                <span>Halus (0.6x)</span>
+                <span>Standar (1.15x)</span>
+                <span>Cepat (2.0x)</span>
               </div>
+              <p className="text-xs pt-1" style={{ color: 'var(--ui-text-muted)' }}>
+                Geser layar ke kiri/kanan pada ponsel atau tekan A/D dan tombol panah pada keyboard.
+              </p>
             </div>
-
-            {/* Deadzone Slider */}
-            <div className="p-3 rounded-xl border space-y-2" style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-surface)' }}>
-              <div className="flex items-center justify-between text-sm">
-                <label htmlFor="gyro-deadzone-slider" className="font-semibold">
-                  Zona Netral Tengah (Deadzone)
-                </label>
-                <span className="font-bold tabular-nums">
-                  {settings.gyroDeadzone}°
-                </span>
-              </div>
-              <input
-                id="gyro-deadzone-slider"
-                type="range"
-                min="1"
-                max="8"
-                step="0.5"
-                value={settings.gyroDeadzone}
-                onChange={(e) => onChange({ ...settings, gyroDeadzone: parseFloat(e.target.value) })}
-                className="w-full accent-sky-600 cursor-pointer"
-              />
-            </div>
-
-            <label className="flex items-center justify-between gap-3 p-3 rounded-xl border cursor-pointer" style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-surface)' }}>
-              <span className="text-sm font-semibold">Balikkan Arah Giroskop (Invert)</span>
-              <input
-                type="checkbox"
-                checked={settings.invertGyro}
-                onChange={(e) => onChange({ ...settings, invertGyro: e.target.checked })}
-                className="w-5 h-5 accent-sky-600"
-              />
-            </label>
           </section>
 
           {/* Environment Theme Section */}

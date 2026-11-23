@@ -1,17 +1,21 @@
-import { X, Shield, Zap, Scale, Heart, Coins, Check, ArrowUpCircle } from 'lucide-react';
+import { X, Shield, Zap, Scale, Heart, Coins, Check, ArrowUpCircle, Star, Flame } from 'lucide-react';
 import {
-  BALANCE_BOOSTER_COSTS,
-  BALANCE_SPEED_COSTS,
-  BALANCE_STRENGTH_COSTS,
-  BASE_MAX_LIVES,
-  MAX_LIVES_COSTS,
-  MAX_LIVES_UPGRADE_CAP,
+  BASE_LIVES_PER_PLANE,
+  BALANCE_JET_COSTS,
+  BALANCE_SHIELD_COSTS,
+  HEART_UPGRADE_COSTS,
+  LV10_AGILITY_COSTS,
+  LV10_RECHARGE_COSTS,
+  LV10_SPEED_COSTS,
+  LV10_STRENGTH_COSTS,
+  OBSTACLE_DAMAGE,
   PLANE_CATALOG,
   PLANE_IDS,
-  TITAN_STRENGTH_COSTS,
-  VORTEX_BOOSTER_COSTS,
-  VORTEX_SPEED_COSTS,
+  TITAN_SHIELD_COSTS,
+  VORTEX_JET_COSTS,
   computeEffectivePlaneStats,
+  computePlaneStatsForId,
+  getPlaneMaxLives,
 } from '../game/planes';
 import type { PlaneId, PlayerProgress, PlayerUpgrades } from '../types/game';
 
@@ -31,15 +35,19 @@ export function HangarModal({
   onClose,
 }: HangarModalProps) {
   const stats = computeEffectivePlaneStats(progress);
-  const currentMaxLives = BASE_MAX_LIVES + progress.maxLivesBonus;
-  const canUpgradeLives = progress.maxLivesBonus < MAX_LIVES_UPGRADE_CAP;
-  const nextLifeCost = canUpgradeLives ? MAX_LIVES_COSTS[progress.maxLivesBonus] : 0;
+  const selectedDef = PLANE_CATALOG[progress.selectedPlane];
+  const currentMaxLives = getPlaneMaxLives(progress, progress.selectedPlane);
+  const currentHeartBonus = currentMaxLives - BASE_LIVES_PER_PLANE;
+  const maxHeartBonus = selectedDef.maxLives - BASE_LIVES_PER_PLANE;
+  const canUpgradeLives = currentHeartBonus < maxHeartBonus;
+  const nextLifeCost = canUpgradeLives ? HEART_UPGRADE_COSTS[currentHeartBonus] : 0;
+  const rechargeSec = Math.round(stats.rechargeIntervalSec);
 
   const renderStatBar = (label: string, value: number, accent: string) => (
     <div className="space-y-0.5">
       <div className="flex justify-between text-[11px] font-semibold">
         <span style={{ color: 'var(--ui-text-muted)' }}>{label}</span>
-        <span className="tabular-nums">{value}/10</span>
+        <span className="tabular-nums">{value.toFixed(1).replace(/\.0$/, '')}/10</span>
       </div>
       <div className="h-1.5 w-full rounded-full overflow-hidden" style={{ backgroundColor: 'var(--ui-surface-muted)' }}>
         <div
@@ -82,7 +90,7 @@ export function HangarModal({
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm font-extrabold">{opts.title}</span>
             <span
-              className="text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums"
+              className="text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums shrink-0"
               style={{
                 backgroundColor: 'var(--ui-surface-muted)',
                 color: opts.accent,
@@ -117,6 +125,8 @@ export function HangarModal({
     );
   };
 
+  const selectedUpgrades = progress.upgrades;
+
   return (
     <div
       role="dialog"
@@ -126,7 +136,7 @@ export function HangarModal({
       style={{ backgroundColor: 'rgba(15, 23, 42, 0.78)' }}
     >
       <div
-        className="a11y-card my-auto w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl border p-4 sm:p-6 shadow-2xl"
+        className="a11y-card my-auto w-full max-w-5xl max-h-[92dvh] overflow-y-auto rounded-2xl border p-4 sm:p-6 shadow-2xl"
         style={{
           backgroundColor: 'var(--ui-bg-solid)',
           borderColor: 'var(--ui-border)',
@@ -139,11 +149,11 @@ export function HangarModal({
           style={{ borderColor: 'var(--ui-border)' }}
         >
           <div>
-            <h2 id="hangar-title" className="text-xl font-extrabold">
+            <h2 id="hangar-title" className="font-display text-xl font-extrabold">
               Hangar Pesawat &amp; Upgrade Poin
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--ui-text-muted)' }}>
-              Pilih jenis pesawat dan gunakan poin hasil terbang untuk membeli nyawa maksimal serta kekuatan
+              Kekuatan, Kecepatan, Kelincahan &amp; Isi Ulang Kemampuan (30→10 detik) bisa di-upgrade hingga 10 kali per pesawat.
             </p>
           </div>
 
@@ -176,7 +186,7 @@ export function HangarModal({
           </div>
         </div>
 
-        {/* Max Lives Upgrade Banner */}
+        {/* Per-Plane Max Lives Upgrade Banner */}
         <div
           className="mt-4 p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3"
           style={{
@@ -186,7 +196,7 @@ export function HangarModal({
         >
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1" aria-hidden="true">
-              {Array.from({ length: BASE_MAX_LIVES + MAX_LIVES_UPGRADE_CAP }).map((_, idx) => (
+              {Array.from({ length: selectedDef.maxLives }).map((_, idx) => (
                 <Heart
                   key={idx}
                   className="w-5 h-5"
@@ -200,10 +210,10 @@ export function HangarModal({
             </div>
             <div>
               <div className="text-sm font-extrabold">
-                Nyawa Maksimal: {currentMaxLives} / {BASE_MAX_LIVES + MAX_LIVES_UPGRADE_CAP}
+                Hati {selectedDef.name}: {currentMaxLives} / {selectedDef.maxLives}
               </div>
               <div className="text-xs" style={{ color: 'var(--ui-text-muted)' }}>
-                Setiap penerbangan dimulai dengan {currentMaxLives} nyawa penuh.
+                Upgrade hati bersifat khusus per pesawat (awal {BASE_LIVES_PER_PLANE}, maks {selectedDef.maxLives} hati).
               </div>
             </div>
           </div>
@@ -226,7 +236,7 @@ export function HangarModal({
           >
             <Heart className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
             <span>
-              {canUpgradeLives ? `Tambah +1 Nyawa (${nextLifeCost} Poin)` : 'Nyawa Maksimal Penuh'}
+              {canUpgradeLives ? `Tambah +1 Hati (${nextLifeCost} Poin)` : `Hati ${selectedDef.name} Penuh`}
             </span>
           </button>
         </div>
@@ -240,18 +250,8 @@ export function HangarModal({
             {PLANE_IDS.map((id) => {
               const def = PLANE_CATALOG[id];
               const isSelected = progress.selectedPlane === id;
-              const speedDisplay =
-                id === 'titan'
-                  ? 4
-                  : id === 'vortex'
-                    ? Math.min(10, 8 + progress.upgrades.vortexSpeed)
-                    : Math.min(10, 6 + progress.upgrades.balanceSpeed);
-              const strengthDisplay =
-                id === 'titan'
-                  ? Math.min(10, 8 + progress.upgrades.titanStrength)
-                  : id === 'vortex'
-                    ? 4
-                    : Math.min(10, 5 + progress.upgrades.balanceStrength * 2);
+              const planeMaxLives = getPlaneMaxLives(progress, id);
+              const pStats = computePlaneStatsForId(progress, id);
 
               return (
                 <div
@@ -281,20 +281,31 @@ export function HangarModal({
                       {def.tagline}
                     </p>
 
-                    <div
-                      className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg mb-3 border"
-                      style={{
-                        backgroundColor: 'var(--ui-bg-solid)',
-                        borderColor: 'var(--ui-border)',
-                      }}
-                    >
-                      {def.perkSummary}
+                    <div className="flex items-center justify-between text-[11px] font-bold mb-2 tabular-nums">
+                      <span className="inline-flex items-center gap-1" style={{ color: '#ef4444' }}>
+                        <Heart className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
+                        <span>{planeMaxLives}/{def.maxLives} Hati</span>
+                      </span>
+                      <span style={{ color: 'var(--ui-text-muted)' }}>
+                        {id === 'titan'
+                          ? `Pelindung: ${pStats.maxArmorCharges}/3 · ${Math.round(pStats.rechargeIntervalSec)}d`
+                          : id === 'vortex'
+                            ? `Jet: ${pStats.maxJetCharges}/3 · ${Math.round(pStats.rechargeIntervalSec)}d`
+                            : `Pelindung ${pStats.maxArmorCharges}/1 · Jet ${pStats.maxJetCharges}/1 · ${Math.round(pStats.rechargeIntervalSec)}d`}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] font-semibold mb-2 px-2.5 py-1.5 rounded-lg border tabular-nums" style={{ backgroundColor: 'var(--ui-bg-solid)', borderColor: 'var(--ui-border)' }}>
+                      <div>Ketahanan/Nyawa: <strong>{pStats.maxDurabilityPerLife}</strong></div>
+                      <div style={{ color: 'var(--ui-text-muted)' }}>
+                        {Math.ceil(pStats.maxDurabilityPerLife / OBSTACLE_DAMAGE.small)}x Benda Kecil · {Math.ceil(pStats.maxDurabilityPerLife / OBSTACLE_DAMAGE.gate)}x Gawang
+                      </div>
                     </div>
 
                     <div className="space-y-1.5 mb-3">
-                      {renderStatBar('Kecepatan', speedDisplay, def.accentHex)}
-                      {renderStatBar('Kekuatan', strengthDisplay, def.accentHex)}
-                      {renderStatBar('Kelincahan', def.baseAgilityStat, def.accentHex)}
+                      {renderStatBar('Kekuatan', pStats.strengthRating, def.accentHex)}
+                      {renderStatBar('Kecepatan', pStats.speedRating, def.accentHex)}
+                      {renderStatBar('Kelincahan', pStats.agilityRating, def.accentHex)}
                     </div>
                   </div>
 
@@ -320,98 +331,204 @@ export function HangarModal({
 
         {/* Upgrades for Selected Plane */}
         <div className="mt-4">
-          <div className="flex items-center justify-between gap-2 mb-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
             <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: 'var(--ui-text-muted)' }}>
-              Upgrade Khusus {PLANE_CATALOG[progress.selectedPlane].name}
+              Upgrade {selectedDef.name}
             </h3>
-            <span className="text-xs font-semibold" style={{ color: 'var(--ui-accent)' }}>
-              Pelindung Awal: {stats.startingArmor}x Aman · {stats.hasBooster ? 'Booster Aktif' : 'Tanpa Booster'}
+            <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--ui-accent)' }}>
+              Pelindung: {stats.maxArmorCharges}x · Jet: {stats.maxJetCharges}x · Isi Ulang: {rechargeSec} detik
             </span>
           </div>
 
           {progress.selectedPlane === 'titan' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {renderUpgradeCard({
-                keyName: 'titanStrength',
-                title: 'Upgrade Kekuatan Rangka',
-                desc: `Menambah pelindung benturan aman (+1 bawaan + ${progress.upgrades.titanStrength} upgrade = ${1 + progress.upgrades.titanStrength}x tabrak gawang/rintangan aman).`,
-                level: progress.upgrades.titanStrength,
+                keyName: 'titanShield',
+                title: 'Kapasitas Pelindung',
+                desc: `Mulai 1 pelindung, maksimal 3 (${stats.maxArmorCharges}/3), terisi ulang tiap ${rechargeSec} detik.`,
+                level: selectedUpgrades.titanShield,
                 maxLevel: 2,
-                costs: TITAN_STRENGTH_COSTS,
+                costs: TITAN_SHIELD_COSTS,
                 accent: PLANE_CATALOG.titan.accentHex,
               })}
-              <div
-                className="p-3.5 rounded-xl border flex flex-col justify-center"
-                style={{ backgroundColor: 'var(--ui-surface)', borderColor: 'var(--ui-border)' }}
-              >
-                <div className="text-sm font-bold">Karakteristik Aegis Titan</div>
-                <p className="text-xs mt-1" style={{ color: 'var(--ui-text-muted)' }}>
-                  Pesawat ini sengaja dirancang lebih lambat dan stabil agar pemain mudah bermanuver, dengan perlindungan otomatis tabrak 1 gawang aman di setiap sesi.
-                </p>
-              </div>
+              {renderUpgradeCard({
+                keyName: 'titanStrength',
+                title: 'Upgrade Kekuatan',
+                desc: `Ketahanan ${stats.maxDurabilityPerLife}/nyawa (maks 100 = ${Math.ceil(stats.maxDurabilityPerLife / OBSTACLE_DAMAGE.small)}x benda kecil atau ${Math.ceil(stats.maxDurabilityPerLife / OBSTACLE_DAMAGE.gate)}x gawang).`,
+                level: selectedUpgrades.titanStrength,
+                maxLevel: 10,
+                costs: LV10_STRENGTH_COSTS,
+                accent: PLANE_CATALOG.titan.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'titanSpeed',
+                title: 'Upgrade Kecepatan',
+                desc: `Meningkatkan kecepatan jelajah Aegis Titan (${stats.speedRating.toFixed(1)}/10, maks 6.5/10).`,
+                level: selectedUpgrades.titanSpeed,
+                maxLevel: 10,
+                costs: LV10_SPEED_COSTS,
+                accent: PLANE_CATALOG.titan.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'titanAgility',
+                title: 'Upgrade Kelincahan',
+                desc: `Mempermudah & mempercepat belokan pesawat (${stats.agilityRating.toFixed(1)}/10, maks 7.0/10).`,
+                level: selectedUpgrades.titanAgility,
+                maxLevel: 10,
+                costs: LV10_AGILITY_COSTS,
+                accent: PLANE_CATALOG.titan.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'titanRecharge',
+                title: 'Isi Ulang Kemampuan',
+                desc: `Mempercepat pengisian ulang Pelindung dari 30 detik hingga 10 detik (saat ini ${rechargeSec} detik).`,
+                level: selectedUpgrades.titanRecharge,
+                maxLevel: 10,
+                costs: LV10_RECHARGE_COSTS,
+                accent: PLANE_CATALOG.titan.accentHex,
+              })}
             </div>
           )}
 
           {progress.selectedPlane === 'vortex' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {renderUpgradeCard({
-                keyName: 'vortexSpeed',
-                title: 'Upgrade Mesin Kecepatan',
-                desc: 'Meningkatkan kecepatan jelajah dasar dan kelincahan manuver Vortex Jet.',
-                level: progress.upgrades.vortexSpeed,
-                maxLevel: 3,
-                costs: VORTEX_SPEED_COSTS,
+                keyName: 'vortexJet',
+                title: 'Kapasitas Jet Booster',
+                desc: `Mulai 1 muatan Jet, maksimal 3x Jet (${stats.maxJetCharges}/3), terisi ulang tiap ${rechargeSec} detik.`,
+                level: selectedUpgrades.vortexJet,
+                maxLevel: 2,
+                costs: VORTEX_JET_COSTS,
                 accent: PLANE_CATALOG.vortex.accentHex,
               })}
               {renderUpgradeCard({
-                keyName: 'vortexBooster',
-                title: 'Upgrade Tombol Booster',
-                desc: 'Memperpanjang durasi Booster aktif serta mempercepat pengisian ulangnya.',
-                level: progress.upgrades.vortexBooster,
-                maxLevel: 3,
-                costs: VORTEX_BOOSTER_COSTS,
+                keyName: 'vortexSpeed',
+                title: 'Upgrade Kecepatan',
+                desc: `Meningkatkan kecepatan supersonik Vortex Jet (${stats.speedRating.toFixed(1)}/10, maks 10/10 tercepat).`,
+                level: selectedUpgrades.vortexSpeed,
+                maxLevel: 10,
+                costs: LV10_SPEED_COSTS,
+                accent: PLANE_CATALOG.vortex.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'vortexAgility',
+                title: 'Upgrade Kelincahan',
+                desc: `Kelincahan manuver tertinggi & paling responsif (${stats.agilityRating.toFixed(1)}/10, maks 10/10 terlincah).`,
+                level: selectedUpgrades.vortexAgility,
+                maxLevel: 10,
+                costs: LV10_AGILITY_COSTS,
+                accent: PLANE_CATALOG.vortex.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'vortexStrength',
+                title: 'Upgrade Kekuatan',
+                desc: `Ketahanan ${stats.maxDurabilityPerLife}/nyawa (maks 50 = ${Math.ceil(stats.maxDurabilityPerLife / OBSTACLE_DAMAGE.small)}x benda kecil atau ${Math.ceil(stats.maxDurabilityPerLife / OBSTACLE_DAMAGE.gate)}x gawang).`,
+                level: selectedUpgrades.vortexStrength,
+                maxLevel: 10,
+                costs: LV10_STRENGTH_COSTS,
+                accent: PLANE_CATALOG.vortex.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'vortexRecharge',
+                title: 'Isi Ulang Kemampuan',
+                desc: `Mempercepat pengisian ulang Jet dari 30 detik hingga 10 detik (saat ini ${rechargeSec} detik).`,
+                level: selectedUpgrades.vortexRecharge,
+                maxLevel: 10,
+                costs: LV10_RECHARGE_COSTS,
                 accent: PLANE_CATALOG.vortex.accentHex,
               })}
             </div>
           )}
 
           {progress.selectedPlane === 'balance' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {renderUpgradeCard({
-                keyName: 'balanceBooster',
-                title: progress.upgrades.balanceBooster === 0 ? 'Beli Tombol Booster' : 'Upgrade Booster',
-                desc:
-                  progress.upgrades.balanceBooster === 0
-                    ? 'Membuka tombol Booster aktif di layar terbang untuk lonjakan kecepatan.'
-                    : 'Menambah durasi dan mempercepat cooldown tombol Booster.',
-                level: progress.upgrades.balanceBooster,
-                maxLevel: 3,
-                costs: BALANCE_BOOSTER_COSTS,
+                keyName: 'balanceShield',
+                title: selectedUpgrades.balanceShield === 0 ? 'Beli Pelindung (0 → 1)' : 'Pelindung Aktif',
+                desc: `Membuka kemampuan Pelindung (maks 1), terisi ulang tiap ${rechargeSec} detik.`,
+                level: selectedUpgrades.balanceShield,
+                maxLevel: 1,
+                costs: BALANCE_SHIELD_COSTS,
+                accent: PLANE_CATALOG.balance.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'balanceJet',
+                title: selectedUpgrades.balanceJet === 0 ? 'Beli Jet Booster (0 → 1)' : 'Jet Booster Aktif',
+                desc: `Membuka tombol Jet Booster (maks 1), terisi ulang tiap ${rechargeSec} detik.`,
+                level: selectedUpgrades.balanceJet,
+                maxLevel: 1,
+                costs: BALANCE_JET_COSTS,
                 accent: PLANE_CATALOG.balance.accentHex,
               })}
               {renderUpgradeCard({
                 keyName: 'balanceStrength',
-                title: 'Beli Kekuatan (Armor)',
-                desc: `Memberi ${progress.upgrades.balanceStrength}x pelindung tabrak aman tanpa mengurangi nyawa per sesi.`,
-                level: progress.upgrades.balanceStrength,
-                maxLevel: 3,
-                costs: BALANCE_STRENGTH_COSTS,
+                title: 'Upgrade Kekuatan',
+                desc: `Ketahanan ${stats.maxDurabilityPerLife}/nyawa (maks 75 = ${Math.ceil(stats.maxDurabilityPerLife / OBSTACLE_DAMAGE.small)}x benda kecil atau ${Math.ceil(stats.maxDurabilityPerLife / OBSTACLE_DAMAGE.gate)}x gawang).`,
+                level: selectedUpgrades.balanceStrength,
+                maxLevel: 10,
+                costs: LV10_STRENGTH_COSTS,
                 accent: PLANE_CATALOG.balance.accentHex,
               })}
               {renderUpgradeCard({
                 keyName: 'balanceSpeed',
-                title: 'Beli Kecepatan',
-                desc: 'Meningkatkan kecepatan terbang dan kelincahan belok Aero Prime.',
-                level: progress.upgrades.balanceSpeed,
-                maxLevel: 3,
-                costs: BALANCE_SPEED_COSTS,
+                title: 'Upgrade Kecepatan',
+                desc: `Kecepatan jelajah seimbang (${stats.speedRating.toFixed(1)}/10, maks 8.5/10).`,
+                level: selectedUpgrades.balanceSpeed,
+                maxLevel: 10,
+                costs: LV10_SPEED_COSTS,
+                accent: PLANE_CATALOG.balance.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'balanceAgility',
+                title: 'Upgrade Kelincahan',
+                desc: `Kelincahan kendali seimbang (${stats.agilityRating.toFixed(1)}/10, maks 8.5/10).`,
+                level: selectedUpgrades.balanceAgility,
+                maxLevel: 10,
+                costs: LV10_AGILITY_COSTS,
+                accent: PLANE_CATALOG.balance.accentHex,
+              })}
+              {renderUpgradeCard({
+                keyName: 'balanceRecharge',
+                title: 'Isi Ulang Kemampuan',
+                desc: `Mempercepat pengisian ulang Pelindung & Jet dari 30 detik hingga 10 detik (saat ini ${rechargeSec} detik).`,
+                level: selectedUpgrades.balanceRecharge,
+                maxLevel: 10,
+                costs: LV10_RECHARGE_COSTS,
                 accent: PLANE_CATALOG.balance.accentHex,
               })}
             </div>
           )}
         </div>
 
-        <div className="mt-5 flex justify-end">
+        {/* Item Legend */}
+        <div
+          className="mt-4 p-3 rounded-xl border"
+          style={{ backgroundColor: 'var(--ui-surface)', borderColor: 'var(--ui-border)' }}
+        >
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--ui-text-muted)' }}>
+            Rasio Kemunculan Item Unik &amp; Skor (+5 per Gawang)
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <Star className="w-4 h-4 shrink-0 text-amber-400 fill-amber-400" aria-hidden="true" />
+              <span><strong>Skor (30%):</strong> +10 Skor</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Heart className="w-4 h-4 shrink-0 text-red-500 fill-red-500" aria-hidden="true" />
+              <span><strong>Hati (10%):</strong> +1 Nyawa</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Flame className="w-4 h-4 shrink-0 text-orange-500 fill-orange-500" aria-hidden="true" />
+              <span><strong>Boost (15%):</strong> Kecepatan</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Shield className="w-4 h-4 shrink-0 text-teal-400 fill-teal-400/30" aria-hidden="true" />
+              <span><strong>Perisai (15%):</strong> Tahan Hit</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex justify-end">
           <button
             type="button"
             onClick={onClose}

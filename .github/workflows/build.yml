@@ -94,11 +94,59 @@ jobs:
           npx cap sync android
           echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      - name: Configure Android icon & landscape orientation
+      - name: Configure Android icon, fullscreen & landscape orientation
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ] && ! grep -q "android:screenOrientation" "$MANIFEST"; then
             sed -i 's/<activity\([[:space:]]\|$\)/<activity android:screenOrientation="sensorLandscape"\1/' "$MANIFEST"
+          fi
+          STYLES="android/app/src/main/res/values/styles.xml"
+          if [ -f "$STYLES" ] && ! grep -q "android:windowFullscreen" "$STYLES"; then
+            sed -i 's|</style>|    <item name="android:windowFullscreen">true</item>\n        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>\n    </style>|' "$STYLES"
+          fi
+          MAIN_ACT=$(find android/app/src/main/java -name "MainActivity.java" | head -n 1 || true)
+          if [ -n "$MAIN_ACT" ] && ! grep -q "SYSTEM_UI_FLAG_IMMERSIVE_STICKY" "$MAIN_ACT"; then
+            python3 -c '
+import pathlib
+p = pathlib.Path("'"$MAIN_ACT"'")
+txt = p.read_text()
+imports = "import android.os.Bundle;\nimport android.view.View;\nimport android.view.WindowManager;\nimport androidx.core.view.WindowCompat;\n"
+if "import android.os.Bundle;" not in txt:
+    txt = txt.replace("public class MainActivity", imports + "\npublic class MainActivity")
+hook = """
+  @Override
+  public void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
+    applyImmersiveFullscreen();
+  }
+
+  @Override
+  public void onWindowFocusChanged(boolean hasFocus) {
+    super.onWindowFocusChanged(hasFocus);
+    if (hasFocus) {
+      applyImmersiveFullscreen();
+    }
+  }
+
+  private void applyImmersiveFullscreen() {
+    WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+    getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    View decorView = getWindow().getDecorView();
+    decorView.setSystemUiVisibility(
+      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+        | View.SYSTEM_UI_FLAG_FULLSCREEN
+    );
+  }
+"""
+idx = txt.rfind("}")
+if idx != -1:
+    txt = txt[:idx] + hook + "\n}\n"
+p.write_text(txt)
+'
           fi
           if [ -f "public/pwa-512x512.png" ]; then
             rm -rf android/app/src/main/res/mipmap-anydpi-v26 || true

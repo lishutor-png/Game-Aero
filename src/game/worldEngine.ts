@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createProceduralPlane, type PlaneRig } from './planeModel';
 import { ENVIRONMENT_THEMES, pickRandomTheme } from './themes';
-import { computeEffectivePlaneStats, DEFAULT_PROGRESS } from './planes';
+import { computeEffectivePlaneStats, DEFAULT_PROGRESS, OBSTACLE_DAMAGE } from './planes';
 import { soundEngine } from './audio';
 import { FlightInputController } from './gyro';
 import type {
@@ -53,8 +53,10 @@ interface PowerUpUnit {
   kind: PowerUpType;
   z: number;
   x: number;
-  coreMesh: THREE.Mesh;
-  ringMesh: THREE.Mesh;
+  scoreGroup: THREE.Group;
+  heartGroup: THREE.Group;
+  boostGroup: THREE.Group;
+  shieldGroup: THREE.Group;
 }
 
 interface ParticleUnit {
@@ -189,6 +191,7 @@ export class FlightWorldEngine {
 
   private obstacles: ObstacleUnit[] = [];
   private powerUps: PowerUpUnit[] = [];
+  private powerUpDisposables: Array<{ dispose: () => void }> = [];
   private particles: ParticleUnit[] = [];
 
   // Simulation state
@@ -207,18 +210,19 @@ export class FlightWorldEngine {
   private forwardSpeed = 24;
   private distance = 0;
   private bonusScore = 0;
-  private runEarnedPoints = 0;
   private combo = 0;
   private maxCombo = 0;
   private powerUpsCollected = 0;
 
-  private lives = 3;
+  private lives = 2;
+  private durability = 45;
   private armorRemaining = 0;
+  private armorRechargeTimer = 0;
+  private jetCharges = 0;
+  private jetRechargeTimer = 0;
   private hasShield = false;
   private turboRemaining = 0;
-  private readonly turboDuration = 5.5;
   private boosterActiveRemaining = 0;
-  private boosterCooldownRemaining = 0;
   private invulnTimer = 0;
   private hitstopTimer = 0;
   private shakeIntensity = 0;
@@ -233,6 +237,7 @@ export class FlightWorldEngine {
   private hudThrottle = 0;
 
   // Bound resize, booster key & touch handlers
+  private resizeObserver: ResizeObserver | null = null;
   private onResizeBound: () => void;
   private onKeyDownBound: (e: KeyboardEvent) => void;
   private onTouchStartBound: (e: TouchEvent) => void;
@@ -258,6 +263,9 @@ export class FlightWorldEngine {
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
+    this.renderer.domElement.style.display = 'block';
+    this.renderer.domElement.style.width = '100%';
+    this.renderer.domElement.style.height = '100%';
 
     container.appendChild(this.renderer.domElement);
 
@@ -423,7 +431,7 @@ export class FlightWorldEngine {
     this.onKeyDownBound = (e: KeyboardEvent) => {
       if (this.runningState !== 'playing') return;
       if (e.code === 'Space' || e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.code === 'KeyW' || e.code === 'ArrowUp') {
-        if (this.planeStats.hasBooster) {
+        if (this.planeStats.maxJetCharges > 0) {
           e.preventDefault();
           this.activateBooster();
         }
@@ -444,6 +452,13 @@ export class FlightWorldEngine {
     };
 
     window.addEventListener('resize', this.onResizeBound);
+    window.addEventListener('orientationchange', this.onResizeBound);
+    document.addEventListener('fullscreenchange', this.onResizeBound);
+    window.visualViewport?.addEventListener('resize', this.onResizeBound);
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.handleResize());
+      this.resizeObserver.observe(this.container);
+    }
     window.addEventListener('keydown', this.onKeyDownBound);
     this.renderer.domElement.addEventListener('touchstart', this.onTouchStartBound, { passive: true });
     this.renderer.domElement.addEventListener('touchmove', this.onTouchMoveBound, { passive: true });
@@ -544,41 +559,185 @@ export class FlightWorldEngine {
   }
 
   private initPowerUpPool(count: number): void {
-    const coreGeo = new THREE.OctahedronGeometry(0.62, 0);
-    const ringGeo = new THREE.TorusGeometry(1.05, 0.11, 10, 24);
+    // 1. Unique Item Skor Geometry (5-pointed Golden Star + Coin Ring)
+    const starShape = new THREE.Shape();
+    for (let s = 0; s < 10; s++) {
+      const r = s % 2 === 0 ? 0.68 : 0.3;
+      const angle = (s * Math.PI) / 5 - Math.PI / 2;
+      const px = Math.cos(angle) * r;
+      const py = Math.sin(angle) * r;
+      if (s === 0) starShape.moveTo(px, py);
+      else starShape.lineTo(px, py);
+    }
+    starShape.closePath();
+    const starGeo = new THREE.ExtrudeGeometry(starShape, {
+      depth: 0.16,
+      bevelEnabled: true,
+      bevelThickness: 0.04,
+      bevelSize: 0.04,
+      bevelSegments: 2,
+    });
+    starGeo.center();
+    const coinRingGeo = new THREE.TorusGeometry(0.95, 0.09, 10, 24);
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xfacc15,
+      emissive: 0xeab308,
+      emissiveIntensity: 1.0,
+      roughness: 0.22,
+      metalness: 0.55,
+    });
+    const goldRimMat = new THREE.MeshStandardMaterial({
+      color: 0xfef08a,
+      emissive: 0xfacc15,
+      emissiveIntensity: 0.75,
+      roughness: 0.25,
+      metalness: 0.4,
+    });
+
+    // 2. Unique Item Hati Geometry (Extruded 3D Ruby Heart + Halo Ring)
+    const heartShape = new THREE.Shape();
+    heartShape.moveTo(0, -0.52);
+    heartShape.bezierCurveTo(-0.55, -0.15, -0.78, 0.32, -0.44, 0.6);
+    heartShape.bezierCurveTo(-0.2, 0.78, 0, 0.55, 0, 0.38);
+    heartShape.bezierCurveTo(0, 0.55, 0.2, 0.78, 0.44, 0.6);
+    heartShape.bezierCurveTo(0.78, 0.32, 0.55, -0.15, 0, -0.52);
+    const heartGeo = new THREE.ExtrudeGeometry(heartShape, {
+      depth: 0.22,
+      bevelEnabled: true,
+      bevelThickness: 0.06,
+      bevelSize: 0.05,
+      bevelSegments: 2,
+    });
+    heartGeo.center();
+    const heartHaloGeo = new THREE.TorusGeometry(0.98, 0.075, 10, 24);
+    const heartMat = new THREE.MeshStandardMaterial({
+      color: 0xef4444,
+      emissive: 0xdc2626,
+      emissiveIntensity: 1.05,
+      roughness: 0.2,
+      metalness: 0.2,
+    });
+    const heartRimMat = new THREE.MeshStandardMaterial({
+      color: 0xfda4af,
+      emissive: 0xfb7185,
+      emissiveIntensity: 0.65,
+      roughness: 0.3,
+    });
+
+    // 3. Unique Item Boost Geometry (3D Lightning Bolt + Electric Speed Ring)
+    const boltShape = new THREE.Shape();
+    boltShape.moveTo(0.14, 0.72);
+    boltShape.lineTo(-0.38, 0.05);
+    boltShape.lineTo(0.02, 0.05);
+    boltShape.lineTo(-0.18, -0.72);
+    boltShape.lineTo(0.42, -0.02);
+    boltShape.lineTo(0.04, -0.02);
+    boltShape.closePath();
+    const boltGeo = new THREE.ExtrudeGeometry(boltShape, {
+      depth: 0.18,
+      bevelEnabled: true,
+      bevelThickness: 0.04,
+      bevelSize: 0.04,
+      bevelSegments: 2,
+    });
+    boltGeo.center();
+    const boostRingGeo = new THREE.TorusGeometry(1.02, 0.09, 10, 24);
+    const boostMat = new THREE.MeshStandardMaterial({
+      color: 0xf97316,
+      emissive: 0xea580c,
+      emissiveIntensity: 1.25,
+      roughness: 0.2,
+      metalness: 0.3,
+    });
+    const boostRingMat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      emissive: 0x0ea5e9,
+      emissiveIntensity: 0.9,
+      roughness: 0.25,
+    });
+
+    // 4. Unique Item Perisai Geometry (3D Heraldic Shield + Hexagonal Frame)
+    const shieldShape = new THREE.Shape();
+    shieldShape.moveTo(0, 0.66);
+    shieldShape.lineTo(0.56, 0.44);
+    shieldShape.lineTo(0.48, -0.18);
+    shieldShape.lineTo(0, -0.68);
+    shieldShape.lineTo(-0.48, -0.18);
+    shieldShape.lineTo(-0.56, 0.44);
+    shieldShape.closePath();
+    const shieldGeo = new THREE.ExtrudeGeometry(shieldShape, {
+      depth: 0.18,
+      bevelEnabled: true,
+      bevelThickness: 0.045,
+      bevelSize: 0.04,
+      bevelSegments: 2,
+    });
+    shieldGeo.center();
+    const hexRingGeo = new THREE.TorusGeometry(1.02, 0.09, 8, 6);
+    const shieldMat = new THREE.MeshStandardMaterial({
+      color: 0x14b8a6,
+      emissive: 0x0d9488,
+      emissiveIntensity: 1.05,
+      roughness: 0.22,
+      metalness: 0.35,
+    });
+    const shieldRimMat = new THREE.MeshStandardMaterial({
+      color: 0x99f6e4,
+      emissive: 0x2dd4bf,
+      emissiveIntensity: 0.75,
+      roughness: 0.25,
+    });
+
+    this.powerUpDisposables.push(
+      starGeo,
+      coinRingGeo,
+      goldMat,
+      goldRimMat,
+      heartGeo,
+      heartHaloGeo,
+      heartMat,
+      heartRimMat,
+      boltGeo,
+      boostRingGeo,
+      boostMat,
+      boostRingMat,
+      shieldGeo,
+      hexRingGeo,
+      shieldMat,
+      shieldRimMat,
+    );
 
     for (let i = 0; i < count; i++) {
       const group = new THREE.Group();
       group.visible = false;
 
-      const coreMat = new THREE.MeshStandardMaterial({
-        color: 0x38bdf8,
-        emissive: 0x38bdf8,
-        emissiveIntensity: 1.1,
-        roughness: 0.2,
-        metalness: 0.3,
-      });
-      const ringMat = new THREE.MeshStandardMaterial({
-        color: 0xfbbf24,
-        emissive: 0xf59e0b,
-        emissiveIntensity: 0.9,
-        roughness: 0.25,
-        metalness: 0.4,
-      });
+      const scoreGroup = new THREE.Group();
+      scoreGroup.add(new THREE.Mesh(starGeo, goldMat), new THREE.Mesh(coinRingGeo, goldRimMat));
 
-      const coreMesh = new THREE.Mesh(coreGeo, coreMat);
-      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-      group.add(coreMesh, ringMesh);
+      const heartGroup = new THREE.Group();
+      heartGroup.add(new THREE.Mesh(heartGeo, heartMat), new THREE.Mesh(heartHaloGeo, heartRimMat));
+
+      const boostGroup = new THREE.Group();
+      const boostRing = new THREE.Mesh(boostRingGeo, boostRingMat);
+      boostRing.rotation.x = Math.PI / 6;
+      boostGroup.add(new THREE.Mesh(boltGeo, boostMat), boostRing);
+
+      const shieldGroup = new THREE.Group();
+      shieldGroup.add(new THREE.Mesh(shieldGeo, shieldMat), new THREE.Mesh(hexRingGeo, shieldRimMat));
+
+      group.add(scoreGroup, heartGroup, boostGroup, shieldGroup);
       this.scene.add(group);
 
       this.powerUps.push({
         group,
         active: false,
-        kind: 'turbo',
+        kind: 'bonus',
         z: 0,
         x: 0,
-        coreMesh,
-        ringMesh,
+        scoreGroup,
+        heartGroup,
+        boostGroup,
+        shieldGroup,
       });
     }
   }
@@ -694,10 +853,7 @@ export class FlightWorldEngine {
     a11y: { highContrast: boolean; reducedMotion: boolean },
   ): void {
     this.input.configure({
-      gyroEnabled: settings.gyroEnabled,
-      sensitivity: settings.gyroSensitivity,
-      deadzoneDeg: settings.gyroDeadzone,
-      invertGyro: settings.invertGyro,
+      sensitivity: settings.steeringSensitivity,
     });
 
     soundEngine.setVolumes(settings.musicVolume, settings.sfxVolume, settings.muted);
@@ -742,16 +898,20 @@ export class FlightWorldEngine {
 
   public activateBooster(): boolean {
     if (this.runningState !== 'playing') return false;
-    if (!this.planeStats.hasBooster) return false;
-    if (this.boosterActiveRemaining > 0 || this.boosterCooldownRemaining > 0) return false;
+    if (this.planeStats.maxJetCharges <= 0 || this.jetCharges <= 0) return false;
+    if (this.boosterActiveRemaining > 0) return false;
 
+    this.jetCharges -= 1;
     this.boosterActiveRemaining = this.planeStats.boosterDuration;
+    if (this.jetRechargeTimer <= 0) {
+      this.jetRechargeTimer = this.planeStats.rechargeIntervalSec;
+    }
     this.shakeIntensity = Math.max(this.shakeIntensity, 0.18);
     soundEngine.playBooster();
     this.emitParticles(this.planeX, PLANE_Y, 1.4, 0xf97316, 14);
-    this.callbacks.onAnnounce('Booster diaktifkan! Kecepatan meningkat drastis.');
-    const { tiltDeg, steer, source } = this.input.sample();
-    this.emitHudSnapshot(tiltDeg, steer, source);
+    this.callbacks.onAnnounce(`Jet Booster aktif! Sisa muatan Jet: ${this.jetCharges}.`);
+    const { steer, source } = this.input.sample();
+    this.emitHudSnapshot(steer, source);
     return true;
   }
 
@@ -780,16 +940,18 @@ export class FlightWorldEngine {
     this.forwardSpeed = (mode === 'practice' ? 20 : 24) * planeStats.speedMultiplier;
     this.distance = 0;
     this.bonusScore = 0;
-    this.runEarnedPoints = 0;
     this.combo = 0;
     this.maxCombo = 0;
     this.powerUpsCollected = 0;
     this.lives = planeStats.maxLives;
-    this.armorRemaining = planeStats.startingArmor;
+    this.durability = planeStats.maxDurabilityPerLife;
+    this.armorRemaining = planeStats.maxArmorCharges;
+    this.armorRechargeTimer = 0;
+    this.jetCharges = planeStats.maxJetCharges;
+    this.jetRechargeTimer = 0;
     this.hasShield = false;
     this.turboRemaining = 0;
     this.boosterActiveRemaining = 0;
-    this.boosterCooldownRemaining = 0;
     this.invulnTimer = 0.7;
     this.hitstopTimer = 0;
     this.shakeIntensity = 0;
@@ -811,13 +973,12 @@ export class FlightWorldEngine {
       pu.group.visible = false;
     }
 
-    // Spawn a friendly starter gate or power-up right ahead in Practice Mode
     if (mode === 'practice') {
       this.spawnObstacle('gate', -68, 0);
-      this.spawnPowerUp('shield', -96, -3.5);
-      this.spawnPowerUp('turbo', -120, 3.5);
+      this.spawnPowerUp('bonus', -92, -3.5);
+      this.spawnPowerUp('shield', -116, 3.5);
       this.callbacks.onAnnounce(
-        'Mode Latihan dimulai. Miringkan perangkat ke kiri atau kanan, atau gunakan tombol panah untuk mengemudikan pesawat.',
+        'Mode Latihan dimulai. Geser layar atau gunakan tombol A/D atau Panah untuk mengemudikan pesawat.',
       );
     } else {
       this.spawnObstacle('gate', -72, 0);
@@ -826,7 +987,7 @@ export class FlightWorldEngine {
       );
     }
 
-    this.emitHudSnapshot(0, 0, 'keyboard');
+    this.emitHudSnapshot(0, 'keyboard');
   }
 
   public pause(): void {
@@ -848,9 +1009,11 @@ export class FlightWorldEngine {
     this.runningState = 'menu';
     this.hasShield = false;
     this.armorRemaining = 0;
+    this.armorRechargeTimer = 0;
+    this.jetCharges = 0;
+    this.jetRechargeTimer = 0;
     this.turboRemaining = 0;
     this.boosterActiveRemaining = 0;
-    this.boosterCooldownRemaining = 0;
     this.plane.shieldMesh.visible = false;
     this.plane.armorMesh.visible = false;
     this.plane.root.visible = true;
@@ -927,39 +1090,34 @@ export class FlightWorldEngine {
     const pu = this.powerUps.find((p) => !p.active);
     if (!pu) return;
 
-    const r = Math.random();
-    const kind: PowerUpType = forcedKind ?? (r < 0.34 ? 'turbo' : r < 0.68 ? 'shield' : 'bonus');
+    let kind: PowerUpType;
+    if (forcedKind) {
+      kind = forcedKind;
+    } else {
+      // Rasio kemunculan: Hati 10%, Skor 30%, Perisai 15%, Booster 15% (30% tidak muncul)
+      const r = Math.random();
+      if (r < 0.1) {
+        kind = 'heart';
+      } else if (r < 0.4) {
+        kind = 'bonus';
+      } else if (r < 0.55) {
+        kind = 'shield';
+      } else if (r < 0.7) {
+        kind = 'turbo';
+      } else {
+        return;
+      }
+    }
 
     pu.active = true;
     pu.kind = kind;
     pu.z = forcedZ ?? SPAWN_Z - 12;
     pu.x = forcedX ?? (Math.random() - 0.5) * (CORRIDOR_HALF_WIDTH - 3) * 1.8;
 
-    const coreMat = pu.coreMesh.material as THREE.MeshStandardMaterial;
-    const ringMat = pu.ringMesh.material as THREE.MeshStandardMaterial;
-
-    if (kind === 'turbo') {
-      coreMat.color.setHex(0xf59e0b);
-      coreMat.emissive.setHex(0xf97316);
-      ringMat.color.setHex(0x38bdf8);
-      ringMat.emissive.setHex(0x0ea5e9);
-      pu.coreMesh.visible = true;
-      pu.ringMesh.scale.setScalar(1);
-    } else if (kind === 'shield') {
-      coreMat.color.setHex(0x2dd4bf);
-      coreMat.emissive.setHex(0x0d9488);
-      ringMat.color.setHex(0x99f6e4);
-      ringMat.emissive.setHex(0x14b8a6);
-      pu.coreMesh.visible = true;
-      pu.ringMesh.scale.setScalar(1);
-    } else {
-      coreMat.color.setHex(0xfacc15);
-      coreMat.emissive.setHex(0xeab308);
-      ringMat.color.setHex(0xfef08a);
-      ringMat.emissive.setHex(0xfacc15);
-      pu.coreMesh.visible = false;
-      pu.ringMesh.scale.setScalar(1.35);
-    }
+    pu.scoreGroup.visible = kind === 'bonus';
+    pu.heartGroup.visible = kind === 'heart';
+    pu.boostGroup.visible = kind === 'turbo';
+    pu.shieldGroup.visible = kind === 'shield';
 
     pu.group.position.set(pu.x, PLANE_Y + 0.15, pu.z);
     pu.group.visible = true;
@@ -967,7 +1125,6 @@ export class FlightWorldEngine {
 
   private getDifficultyLevel(): number {
     if (this.gameMode === 'practice') return 1;
-    // Gentler progression: level rises every 650m instead of 320m
     return 1 + Math.floor(this.distance / 650);
   }
 
@@ -975,19 +1132,19 @@ export class FlightWorldEngine {
     if (this.practiceStep === 0) {
       return {
         step: 0,
-        message: 'Langkah 1/3: Miringkan perangkat (atau A/D / Panah) ke kiri & kanan untuk berbelok.',
+        message: 'Langkah 1/3: Geser layar kiri/kanan (atau tekan A/D / Panah) untuk berbelok.',
       };
     }
     if (this.practiceStep === 1) {
       return {
         step: 1,
-        message: 'Langkah 2/3: Terbang melewati Gerbang Biru untuk mencetak skor kombo!',
+        message: 'Langkah 2/3: Terbang melewati Gerbang Biru untuk mendapat +5 Skor!',
       };
     }
     if (this.practiceStep === 2) {
       return {
         step: 2,
-        message: 'Langkah 3/3: Ambil bola Perisai (Hijau) atau Turbo (Oranye) untuk efek khusus.',
+        message: 'Langkah 3/3: Ambil Bintang Skor (+10), Hati (+1 Nyawa), Petir Boost, atau Perisai!',
       };
     }
     return {
@@ -1091,7 +1248,7 @@ export class FlightWorldEngine {
     }
 
     // Active Gameplay Simulation
-    const { steer, tiltDeg, source } = this.input.sample();
+    const { steer, source } = this.input.sample();
     const difficulty = this.getDifficultyLevel();
 
     // Practice progression tracking
@@ -1112,11 +1269,44 @@ export class FlightWorldEngine {
     const boosterActive = this.boosterActiveRemaining > 0;
     if (boosterActive) {
       this.boosterActiveRemaining = Math.max(0, this.boosterActiveRemaining - dt);
-      if (this.boosterActiveRemaining <= 0) {
-        this.boosterCooldownRemaining = this.planeStats.boosterCooldown;
+    }
+
+    // 5-second recharge for Jet charges
+    if (this.jetCharges < this.planeStats.maxJetCharges) {
+      if (this.jetRechargeTimer <= 0) {
+        this.jetRechargeTimer = this.planeStats.rechargeIntervalSec;
+      } else {
+        this.jetRechargeTimer -= dt;
+        if (this.jetRechargeTimer <= 0) {
+          this.jetCharges += 1;
+          this.jetRechargeTimer =
+            this.jetCharges < this.planeStats.maxJetCharges
+              ? this.planeStats.rechargeIntervalSec
+              : 0;
+          this.emitParticles(this.planeX, PLANE_Y, 0.8, 0xf97316, 8);
+        }
       }
-    } else if (this.boosterCooldownRemaining > 0) {
-      this.boosterCooldownRemaining = Math.max(0, this.boosterCooldownRemaining - dt);
+    } else {
+      this.jetRechargeTimer = 0;
+    }
+
+    // 5-second recharge for Pelindung (Armor) charges
+    if (this.armorRemaining < this.planeStats.maxArmorCharges) {
+      if (this.armorRechargeTimer <= 0) {
+        this.armorRechargeTimer = this.planeStats.rechargeIntervalSec;
+      } else {
+        this.armorRechargeTimer -= dt;
+        if (this.armorRechargeTimer <= 0) {
+          this.armorRemaining += 1;
+          this.armorRechargeTimer =
+            this.armorRemaining < this.planeStats.maxArmorCharges
+              ? this.planeStats.rechargeIntervalSec
+              : 0;
+          this.emitParticles(this.planeX, PLANE_Y, 0, 0x14b8a6, 10);
+        }
+      }
+    } else {
+      this.armorRechargeTimer = 0;
     }
 
     if (this.invulnTimer > 0) {
@@ -1132,10 +1322,11 @@ export class FlightWorldEngine {
     const targetSpeed = baseTargetSpeed * surgeFactor;
     this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 4.5, dt);
 
-    // Lateral steering (left-right only!)
-    const maxLateralSpeed = 18.5 * this.planeStats.lateralAgility;
+    // Lateral steering (Kecepatan belok + kelincahan respon)
+    const maxLateralSpeed = 18.0 * this.planeStats.lateralAgility;
+    const steeringResponsiveness = 7.5 + this.planeStats.lateralAgility * 5.2;
     const targetVelX = steer * maxLateralSpeed;
-    this.planeVelX = THREE.MathUtils.damp(this.planeVelX, targetVelX, 11.5, dt);
+    this.planeVelX = THREE.MathUtils.damp(this.planeVelX, targetVelX, steeringResponsiveness, dt);
     this.planeX += this.planeVelX * dt;
 
     const boundX = CORRIDOR_HALF_WIDTH - 1.5;
@@ -1208,7 +1399,7 @@ export class FlightWorldEngine {
     }
 
     this.powerUpSpawnAccum += dz;
-    if (this.powerUpSpawnAccum >= (this.gameMode === 'practice' ? 38 : 52)) {
+    if (this.powerUpSpawnAccum >= (this.gameMode === 'practice' ? 30 : 36)) {
       this.powerUpSpawnAccum = 0;
       this.spawnPowerUp();
     }
@@ -1226,16 +1417,14 @@ export class FlightWorldEngine {
 
       ob.group.position.set(ob.x, GROUND_Y, ob.z);
 
-      // Gate pass bonus check
+      // Gate pass bonus check (+5 per gate!)
       if (ob.kind === 'gate' && !ob.gateScored && ob.z > 0.3) {
         const dx = Math.abs(this.planeX - ob.x);
         if (dx < ob.gateGapHalf - 0.35) {
           ob.gateScored = true;
           this.combo += 1;
           if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-          const pts = 100 * Math.min(this.combo, 5);
-          this.bonusScore += pts;
-          this.runEarnedPoints += this.gameMode === 'practice' ? 4 : 15 + Math.min(10, this.combo * 2);
+          this.bonusScore += 5;
           soundEngine.playGatePass(this.combo);
           this.emitParticles(this.planeX, PLANE_Y + 0.3, -0.5, 0x38bdf8, 10);
           if (this.gameMode === 'practice' && this.practiceStep === 1) {
@@ -1276,9 +1465,7 @@ export class FlightWorldEngine {
       if (!pu.active) continue;
       pu.z += dz;
       pu.group.position.set(pu.x, PLANE_Y + 0.15 + Math.sin(elapsed * 4 + pu.z) * 0.18, pu.z);
-      pu.coreMesh.rotation.y += dt * 2.5;
-      pu.ringMesh.rotation.x += dt * 1.8;
-      pu.ringMesh.rotation.y += dt * 2.1;
+      pu.group.rotation.y += dt * 2.4;
 
       if (Math.abs(pu.z) < 1.75 && Math.abs(this.planeX - pu.x) < 2.25) {
         this.collectPowerUp(pu);
@@ -1310,7 +1497,7 @@ export class FlightWorldEngine {
     this.hudThrottle += dt;
     if (this.hudThrottle >= 0.05) {
       this.hudThrottle = 0;
-      this.emitHudSnapshot(tiltDeg, steer, source);
+      this.emitHudSnapshot(steer, source);
     }
   }
 
@@ -1349,23 +1536,30 @@ export class FlightWorldEngine {
     soundEngine.playPowerUp(pu.kind);
 
     if (pu.kind === 'turbo') {
-      this.turboRemaining = this.turboDuration;
-      this.bonusScore += 150;
-      this.runEarnedPoints += this.gameMode === 'practice' ? 5 : 20;
-      this.emitParticles(this.planeX, PLANE_Y, 0, 0xf59e0b, 16);
-      this.callbacks.onAnnounce('Power-up Turbo Boost aktif! Kecepatan meningkat dan skor ganda.');
+      this.turboRemaining = 5.5;
+      this.emitParticles(this.planeX, PLANE_Y, 0, 0xf97316, 16);
+      this.callbacks.onAnnounce('Item Boost aktif! Kecepatan meningkat sementara.');
     } else if (pu.kind === 'shield') {
       this.hasShield = true;
-      this.bonusScore += 100;
-      this.runEarnedPoints += this.gameMode === 'practice' ? 5 : 20;
-      this.emitParticles(this.planeX, PLANE_Y, 0, 0x2dd4bf, 16);
-      this.callbacks.onAnnounce('Perisai Energi aktif! Pesawat terlindungi dari satu benturan.');
+      this.emitParticles(this.planeX, PLANE_Y, 0, 0x14b8a6, 16);
+      this.callbacks.onAnnounce('Item Perisai aktif! Melindungi dari 1 benturan.');
+    } else if (pu.kind === 'heart') {
+      if (this.lives < this.planeStats.maxLives) {
+        this.lives += 1;
+        this.durability = this.planeStats.maxDurabilityPerLife;
+        this.callbacks.onAnnounce(`Item Hati! Nyawa bertambah menjadi ${this.lives}.`);
+      } else {
+        this.durability = this.planeStats.maxDurabilityPerLife;
+        this.bonusScore += 5;
+        this.callbacks.onAnnounce('Item Hati! Ketahanan pulih penuh & bonus +5 skor.');
+      }
+      this.emitParticles(this.planeX, PLANE_Y, 0, 0xef4444, 16);
     } else {
       this.combo += 1;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-      this.bonusScore += 150 * Math.min(this.combo, 5);
-      this.runEarnedPoints += this.gameMode === 'practice' ? 8 : 35;
+      this.bonusScore += 10;
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xfacc15, 14);
+      this.callbacks.onAnnounce('Item Skor! +10 Skor.');
     }
 
     if (this.gameMode === 'practice' && this.practiceStep === 2) {
@@ -1375,26 +1569,38 @@ export class FlightWorldEngine {
   }
 
   private handleObstacleImpact(ob: ObstacleUnit): void {
+    const invulnDuration = 1.45;
+    const dmg =
+      ob.kind === 'gate'
+        ? OBSTACLE_DAMAGE.gate
+        : ob.kind === 'turbine'
+          ? OBSTACLE_DAMAGE.turbine
+          : OBSTACLE_DAMAGE.small;
+    const objLabel = ob.kind === 'gate' ? 'Gawang' : ob.kind === 'turbine' ? 'Turbin' : 'Benda Kecil';
+
     // 1. Energy Shield Power-up absorbs hit first
     if (this.hasShield) {
       this.hasShield = false;
-      this.invulnTimer = 1.6;
+      this.invulnTimer = invulnDuration;
       this.hitstopTimer = 0.055;
       this.shakeIntensity = 0.45;
       ob.active = false;
       ob.group.visible = false;
       soundEngine.playShieldDeflect();
       this.emitParticles(this.planeX, PLANE_Y, 0, 0x2dd4bf, 24);
-      this.callbacks.onAnnounce('Benturan ditahan oleh Perisai Energi!');
-      const { tiltDeg, steer, source } = this.input.sample();
-      this.emitHudSnapshot(tiltDeg, steer, source);
+      this.callbacks.onAnnounce('Benturan ditahan oleh Item Perisai!');
+      const { steer, source } = this.input.sample();
+      this.emitHudSnapshot(steer, source);
       return;
     }
 
-    // 2. Built-in / Upgraded Plane Armor ("Tabrak 1 Gawang Aman") absorbs hit without losing a life!
+    // 2. Recharging Plane Pelindung (Armor) absorbs hit without reducing durability or life!
     if (this.armorRemaining > 0) {
       this.armorRemaining -= 1;
-      this.invulnTimer = 1.6;
+      if (this.armorRechargeTimer <= 0) {
+        this.armorRechargeTimer = this.planeStats.rechargeIntervalSec;
+      }
+      this.invulnTimer = invulnDuration;
       this.hitstopTimer = 0.055;
       this.shakeIntensity = 0.42;
       ob.active = false;
@@ -1403,16 +1609,16 @@ export class FlightWorldEngine {
       soundEngine.playShieldDeflect();
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xf59e0b, 22);
       this.callbacks.onAnnounce(
-        `Pelindung rangka menahan benturan! Aman! Sisa pelindung: ${this.armorRemaining}.`,
+        `Pelindung menahan benturan! Sisa pelindung: ${this.armorRemaining}. Mengisi ulang tiap ${Math.round(this.planeStats.rechargeIntervalSec)} detik.`,
       );
-      const { tiltDeg, steer, source } = this.input.sample();
-      this.emitHudSnapshot(tiltDeg, steer, source);
+      const { steer, source } = this.input.sample();
+      this.emitHudSnapshot(steer, source);
       return;
     }
 
     // 3. Practice Mode: safe coaching bounce
     if (this.gameMode === 'practice') {
-      this.invulnTimer = 1.6;
+      this.invulnTimer = invulnDuration;
       this.hitstopTimer = 0.04;
       this.shakeIntensity = 0.3;
       this.combo = 0;
@@ -1420,14 +1626,34 @@ export class FlightWorldEngine {
       ob.group.visible = false;
       soundEngine.playShieldDeflect();
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xfbbf24, 14);
-      this.callbacks.onAnnounce('Menabrak rintangan di Mode Latihan. Coba miringkan lebih awal untuk menghindar.');
+      this.callbacks.onAnnounce('Menabrak rintangan di Mode Latihan. Coba belok lebih awal untuk menghindar.');
       return;
     }
 
-    // 4. Standard Mode with remaining Lives (> 1): lose 1 life and keep flying!
+    // 4. Deduct object damage from current life's durability!
+    this.durability -= dmg;
+    this.combo = 0;
+
+    if (this.durability > 0) {
+      this.invulnTimer = 1.25;
+      this.hitstopTimer = 0.045;
+      this.shakeIntensity = 0.4;
+      ob.active = false;
+      ob.group.visible = false;
+      soundEngine.playShieldDeflect();
+      this.emitParticles(this.planeX, PLANE_Y, 0, 0xfbbf24, 16);
+      this.callbacks.onAnnounce(
+        `Menabrak ${objLabel} (-${dmg} Kekuatan). Sisa ketahanan ${this.durability}/${this.planeStats.maxDurabilityPerLife}.`,
+      );
+      const { steer, source } = this.input.sample();
+      this.emitHudSnapshot(steer, source);
+      return;
+    }
+
+    // 5. Current life's durability depleted -> Lose 1 Life (or Game Over on final life)
     if (this.lives > 1) {
       this.lives -= 1;
-      this.combo = 0;
+      this.durability = this.planeStats.maxDurabilityPerLife;
       this.invulnTimer = 1.85;
       this.hitstopTimer = 0.06;
       this.shakeIntensity = 0.65;
@@ -1435,13 +1661,14 @@ export class FlightWorldEngine {
       ob.group.visible = false;
       soundEngine.playDamage();
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xf87171, 20);
-      this.callbacks.onAnnounce(`Benturan! Sisa nyawa ${this.lives} dari ${this.planeStats.maxLives}.`);
-      const { tiltDeg, steer, source } = this.input.sample();
-      this.emitHudSnapshot(tiltDeg, steer, source);
+      this.callbacks.onAnnounce(`Nyawa berkurang! Sisa nyawa ${this.lives} dari ${this.planeStats.maxLives}.`);
+      const { steer, source } = this.input.sample();
+      this.emitHudSnapshot(steer, source);
       return;
     }
 
-    // 5. Final Life Lost -> Game Over
+    // 6. Final Life Lost -> Game Over
+    this.durability = 0;
     this.lives = 0;
     this.runningState = 'gameover';
     this.hitstopTimer = 0.07;
@@ -1453,8 +1680,8 @@ export class FlightWorldEngine {
 
     const finalScore = this.computeTotalScore();
     const earnedPoints = this.computeEarnedPoints();
-    const { tiltDeg, steer, source } = this.input.sample();
-    this.emitHudSnapshot(tiltDeg, steer, source);
+    const { steer, source } = this.input.sample();
+    this.emitHudSnapshot(steer, source);
 
     const summary: GameOverSummary = {
       score: finalScore,
@@ -1475,16 +1702,14 @@ export class FlightWorldEngine {
   }
 
   private computeTotalScore(): number {
-    const multiplier = this.turboRemaining > 0 || this.boosterActiveRemaining > 0 ? 1.5 : 1;
-    return Math.round(this.distance * 2.5 * multiplier + this.bonusScore);
+    return this.bonusScore;
   }
 
   private computeEarnedPoints(): number {
-    const distancePoints = Math.floor(this.distance / (this.gameMode === 'practice' ? 80 : 25));
-    return Math.max(this.gameMode === 'standard' ? 10 : 0, this.runEarnedPoints + distancePoints);
+    return this.gameMode === 'standard' ? this.bonusScore : 0;
   }
 
-  private emitHudSnapshot(tiltDeg: number, steer: number, source: 'gyro' | 'keyboard' | 'touch'): void {
+  private emitHudSnapshot(steer: number, source: 'keyboard' | 'touch'): void {
     const guidance = this.getPracticeGuidance();
     this.callbacks.onHudUpdate({
       score: this.computeTotalScore(),
@@ -1494,17 +1719,21 @@ export class FlightWorldEngine {
       combo: this.combo,
       lives: this.lives,
       maxLives: this.planeStats.maxLives,
+      durability: Math.max(0, this.durability),
+      maxDurability: this.planeStats.maxDurabilityPerLife,
       armorRemaining: this.armorRemaining,
+      maxArmor: this.planeStats.maxArmorCharges,
+      armorRechargeRemaining: this.armorRechargeTimer,
+      jetCharges: this.jetCharges,
+      maxJetCharges: this.planeStats.maxJetCharges,
+      jetRechargeRemaining: this.jetRechargeTimer,
+      rechargeIntervalSec: this.planeStats.rechargeIntervalSec,
       pointsEarned: this.computeEarnedPoints(),
       hasShield: this.hasShield,
       turboRemaining: this.turboRemaining,
-      turboDuration: this.turboDuration,
-      hasBooster: this.planeStats.hasBooster,
+      turboDuration: 5.5,
       boosterActiveRemaining: this.boosterActiveRemaining,
-      boosterCooldownRemaining: this.boosterCooldownRemaining,
-      boosterCooldownTotal: this.planeStats.boosterCooldown,
       planeId: this.planeStats.planeId,
-      tiltAngleDeg: tiltDeg,
       steerInput: steer,
       activeControl: source,
       practiceStep: guidance.step,
@@ -1518,7 +1747,11 @@ export class FlightWorldEngine {
     cancelAnimationFrame(this.frameId);
     window.clearTimeout(this.frameId);
 
+    this.resizeObserver?.disconnect();
     window.removeEventListener('resize', this.onResizeBound);
+    window.removeEventListener('orientationchange', this.onResizeBound);
+    document.removeEventListener('fullscreenchange', this.onResizeBound);
+    window.visualViewport?.removeEventListener('resize', this.onResizeBound);
     window.removeEventListener('keydown', this.onKeyDownBound);
     this.renderer.domElement.removeEventListener('touchstart', this.onTouchStartBound);
     this.renderer.domElement.removeEventListener('touchmove', this.onTouchMoveBound);
@@ -1527,6 +1760,7 @@ export class FlightWorldEngine {
 
     this.input.detach();
     this.plane.dispose();
+    this.powerUpDisposables.forEach((d) => d.dispose());
     this.groundTex.dispose();
     this.groundMesh.geometry.dispose();
     this.groundMat.dispose();

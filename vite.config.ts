@@ -18,7 +18,7 @@ export default defineConfig(() => {
           name: 'AeroGlide 3D',
           short_name: 'AeroGlide',
           description:
-            'Game pesawat 3D ringan dengan kontrol giroskop kiri-kanan, power-up perisai & turbo, mode latihan, dan papan peringkat global.',
+            'Game pesawat 3D ringan dengan kontrol sentuh & keyboard responsif, power-up unik, mode latihan, dan papan peringkat global.',
           theme_color: '#0b1120',
           background_color: '#0b1120',
           display: 'fullscreen',

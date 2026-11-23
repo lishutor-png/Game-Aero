@@ -1,6 +1,6 @@
 {
   "name": "AeroGlide 3D",
-  "description": "Game pesawat 3D dengan kontrol giroskop kiri-kanan, power-up perisai & turbo, tema lingkungan acak, mode latihan, papan peringkat daring global, dan opsi aksesibilitas lengkap.",
+  "description": "Game pesawat 3D ringan dengan kontrol sentuh & keyboard responsif, 3 kelas pesawat, power-up unik, tema lingkungan acak, mode latihan, papan peringkat daring global, dan opsi aksesibilitas lengkap.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

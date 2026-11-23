@@ -2,16 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlightWorldEngine } from './game/worldEngine';
 import { soundEngine } from './game/audio';
 import {
-  BALANCE_BOOSTER_COSTS,
-  BALANCE_SPEED_COSTS,
-  BALANCE_STRENGTH_COSTS,
+  BALANCE_JET_COSTS,
+  BALANCE_SHIELD_COSTS,
+  BASE_LIVES_PER_PLANE,
+  BASE_RECHARGE_SECONDS,
   DEFAULT_PROGRESS,
-  MAX_LIVES_COSTS,
-  MAX_LIVES_UPGRADE_CAP,
-  TITAN_STRENGTH_COSTS,
-  VORTEX_BOOSTER_COSTS,
-  VORTEX_SPEED_COSTS,
+  HEART_UPGRADE_COSTS,
+  LV10_AGILITY_COSTS,
+  LV10_RECHARGE_COSTS,
+  LV10_SPEED_COSTS,
+  LV10_STRENGTH_COSTS,
+  PLANE_CATALOG,
+  TITAN_SHIELD_COSTS,
+  VORTEX_JET_COSTS,
   computeEffectivePlaneStats,
+  getPlaneMaxLives,
 } from './game/planes';
 import { SplashScreen } from './components/SplashScreen';
 import { MainMenu } from './components/MainMenu';
@@ -35,16 +40,13 @@ import type {
   ScreenState,
 } from './types/game';
 
-const SETTINGS_KEY = 'aeroglide_settings_v1';
+const SETTINGS_KEY = 'aeroglide_settings_v2';
 const A11Y_KEY = 'aeroglide_a11y_v1';
 const BEST_KEY = 'aeroglide_best_score_v1';
-const PROGRESS_KEY = 'aeroglide_progress_v1';
+const PROGRESS_KEY = 'aeroglide_progress_v2';
 
 const DEFAULT_SETTINGS: GameSettings = {
-  gyroEnabled: true,
-  gyroSensitivity: 1.25,
-  gyroDeadzone: 3.0,
-  invertGyro: false,
+  steeringSensitivity: 1.15,
   randomThemePerSession: true,
   selectedTheme: 'morning',
   graphicsQuality: 'auto',
@@ -68,19 +70,23 @@ const INITIAL_HUD: HudSnapshot = {
   speedKmh: 220,
   difficultyLevel: 1,
   combo: 0,
-  lives: 3,
-  maxLives: 3,
+  lives: BASE_LIVES_PER_PLANE,
+  maxLives: BASE_LIVES_PER_PLANE,
+  durability: 45,
+  maxDurability: 45,
   armorRemaining: 0,
+  maxArmor: 0,
+  armorRechargeRemaining: 0,
+  jetCharges: 0,
+  maxJetCharges: 0,
+  jetRechargeRemaining: 0,
+  rechargeIntervalSec: BASE_RECHARGE_SECONDS,
   pointsEarned: 0,
   hasShield: false,
   turboRemaining: 0,
   turboDuration: 5.5,
-  hasBooster: false,
   boosterActiveRemaining: 0,
-  boosterCooldownRemaining: 0,
-  boosterCooldownTotal: 0,
   planeId: 'balance',
-  tiltAngleDeg: 0,
   steerInput: 0,
   activeControl: 'keyboard',
   practiceStep: 0,
@@ -89,12 +95,22 @@ const INITIAL_HUD: HudSnapshot = {
 };
 
 const UPGRADE_COST_MAP: Record<keyof PlayerUpgrades, number[]> = {
-  titanStrength: TITAN_STRENGTH_COSTS,
-  vortexSpeed: VORTEX_SPEED_COSTS,
-  vortexBooster: VORTEX_BOOSTER_COSTS,
-  balanceStrength: BALANCE_STRENGTH_COSTS,
-  balanceSpeed: BALANCE_SPEED_COSTS,
-  balanceBooster: BALANCE_BOOSTER_COSTS,
+  titanShield: TITAN_SHIELD_COSTS,
+  titanStrength: LV10_STRENGTH_COSTS,
+  titanSpeed: LV10_SPEED_COSTS,
+  titanAgility: LV10_AGILITY_COSTS,
+  titanRecharge: LV10_RECHARGE_COSTS,
+  vortexJet: VORTEX_JET_COSTS,
+  vortexStrength: LV10_STRENGTH_COSTS,
+  vortexSpeed: LV10_SPEED_COSTS,
+  vortexAgility: LV10_AGILITY_COSTS,
+  vortexRecharge: LV10_RECHARGE_COSTS,
+  balanceShield: BALANCE_SHIELD_COSTS,
+  balanceJet: BALANCE_JET_COSTS,
+  balanceStrength: LV10_STRENGTH_COSTS,
+  balanceSpeed: LV10_SPEED_COSTS,
+  balanceAgility: LV10_AGILITY_COSTS,
+  balanceRecharge: LV10_RECHARGE_COSTS,
 };
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -115,6 +131,10 @@ function loadProgress(): PlayerProgress {
     return {
       ...DEFAULT_PROGRESS,
       ...parsed,
+      heartsBonus: {
+        ...DEFAULT_PROGRESS.heartsBonus,
+        ...(parsed.heartsBonus ?? {}),
+      },
       upgrades: {
         ...DEFAULT_PROGRESS.upgrades,
         ...(parsed.upgrades ?? {}),
@@ -122,6 +142,22 @@ function loadProgress(): PlayerProgress {
     };
   } catch {
     return DEFAULT_PROGRESS;
+  }
+}
+
+function tryEnterFullscreen() {
+  try {
+    const doc = document as Document & { webkitFullscreenElement?: Element };
+    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+    if (!document.fullscreenElement && !doc.webkitFullscreenElement) {
+      if (typeof el.requestFullscreen === 'function') {
+        void el.requestFullscreen().catch(() => {});
+      } else if (typeof el.webkitRequestFullscreen === 'function') {
+        void el.webkitRequestFullscreen();
+      }
+    }
+  } catch {
+    // ignore where fullscreen API is restricted (e.g., iOS Safari or sandboxed iframe)
   }
 }
 
@@ -152,6 +188,45 @@ export default function App() {
   const [gameOverSummary, setGameOverSummary] = useState<GameOverSummary | null>(null);
   const [activeModal, setActiveModal] = useState<'none' | 'settings' | 'accessibility' | 'leaderboard' | 'hangar'>('none');
   const [announcement, setAnnouncement] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const canFullscreen =
+    typeof document !== 'undefined' &&
+    Boolean(document.fullscreenEnabled || (document.documentElement as HTMLElement & { webkitRequestFullscreen?: unknown }).webkitRequestFullscreen);
+
+  useEffect(() => {
+    const syncFs = () => {
+      const doc = document as Document & { webkitFullscreenElement?: Element };
+      setIsFullscreen(Boolean(document.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', syncFs);
+    document.addEventListener('webkitfullscreenchange', syncFs);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFs);
+      document.removeEventListener('webkitfullscreenchange', syncFs);
+    };
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    soundEngine.playUiClick();
+    try {
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element;
+        webkitExitFullscreen?: () => Promise<void>;
+      };
+      if (document.fullscreenElement || doc.webkitFullscreenElement) {
+        if (typeof document.exitFullscreen === 'function') {
+          void document.exitFullscreen().catch(() => {});
+        } else if (typeof doc.webkitExitFullscreen === 'function') {
+          void doc.webkitExitFullscreen();
+        }
+      } else {
+        tryEnterFullscreen();
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const announce = useCallback(
     (msg: string) => {
@@ -274,6 +349,7 @@ export default function App() {
   const startFlight = useCallback(
     async (mode: GameMode) => {
       soundEngine.playUiClick();
+      tryEnterFullscreen();
       try {
         const orientation = window.screen?.orientation as unknown as { lock?: (o: string) => Promise<void> };
         if (typeof orientation?.lock === 'function') {
@@ -281,9 +357,6 @@ export default function App() {
         }
       } catch {
         // ignore where orientation lock is unsupported
-      }
-      if (settings.gyroEnabled && engineRef.current) {
-        void engineRef.current.input.requestGyroPermission();
       }
       const effectiveStats = computeEffectivePlaneStats(progress);
       setGameMode(mode);
@@ -300,21 +373,30 @@ export default function App() {
       soundEngine.playUiClick();
       setProgress((prev) => ({ ...prev, selectedPlane: planeId }));
       engineRef.current?.setPlaneType(planeId);
-      announce(`Pesawat diganti ke ${planeId}.`);
+      announce(`Pesawat diganti ke ${PLANE_CATALOG[planeId].name}.`);
     },
     [announce],
   );
 
   const handleBuyMaxLife = useCallback(() => {
     setProgress((prev) => {
-      if (prev.maxLivesBonus >= MAX_LIVES_UPGRADE_CAP) return prev;
-      const cost = MAX_LIVES_COSTS[prev.maxLivesBonus];
+      const planeId = prev.selectedPlane;
+      const def = PLANE_CATALOG[planeId];
+      const currentLives = getPlaneMaxLives(prev, planeId);
+      const currentBonus = currentLives - BASE_LIVES_PER_PLANE;
+      const maxBonus = def.maxLives - BASE_LIVES_PER_PLANE;
+      if (currentBonus >= maxBonus) return prev;
+
+      const cost = HEART_UPGRADE_COSTS[currentBonus];
       if (prev.points < cost) return prev;
-      soundEngine.playPowerUp('shield');
+      soundEngine.playPowerUp('heart');
       return {
         ...prev,
         points: prev.points - cost,
-        maxLivesBonus: prev.maxLivesBonus + 1,
+        heartsBonus: {
+          ...prev.heartsBonus,
+          [planeId]: currentBonus + 1,
+        },
       };
     });
   }, []);
@@ -322,7 +404,7 @@ export default function App() {
   const handleBuyUpgrade = useCallback((key: keyof PlayerUpgrades) => {
     setProgress((prev) => {
       const costs = UPGRADE_COST_MAP[key];
-      const currentLv = prev.upgrades[key];
+      const currentLv = prev.upgrades[key] ?? 0;
       if (currentLv >= costs.length) return prev;
       const cost = costs[currentLv];
       if (prev.points < cost) return prev;
@@ -361,12 +443,6 @@ export default function App() {
     announce('Kembali ke Menu Utama.');
   }, [announce, progress.selectedPlane]);
 
-  const handleCalibrate = useCallback(() => {
-    soundEngine.playUiClick();
-    engineRef.current?.input.calibrateCenter();
-    announce('Posisi tengah sensor giroskop dikalibrasi.');
-  }, [announce]);
-
   const handleToggleMute = useCallback(() => {
     setSettings((prev) => {
       const nextMuted = !prev.muted;
@@ -395,7 +471,7 @@ export default function App() {
   }, [activeModal, screen, handlePause, handleResume]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden">
+    <div className="fixed inset-0 w-screen h-dvh overflow-hidden">
       {/* Live Screen Reader Announcer */}
       <div className="sr-only-live" aria-live="polite" aria-atomic="true">
         {announcement}
@@ -407,7 +483,7 @@ export default function App() {
       {/* Isolated WebGL Canvas Container */}
       <div
         ref={canvasMountRef}
-        className="fixed inset-0 z-0"
+        className="fixed inset-0 w-full h-full z-0"
         aria-hidden="true"
       />
 
@@ -428,6 +504,8 @@ export default function App() {
           bestScore={bestScore}
           currentThemeId={settings.selectedTheme}
           hasOpenModal={activeModal !== 'none'}
+          isFullscreen={isFullscreen}
+          canFullscreen={canFullscreen}
           onStartGame={() => void startFlight('standard')}
           onStartPractice={() => void startFlight('practice')}
           onOpenHangar={() => {
@@ -451,6 +529,7 @@ export default function App() {
             setAccessibility((prev) => ({ ...prev, darkMode: !prev.darkMode }));
           }}
           onToggleMute={handleToggleMute}
+          onToggleFullscreen={handleToggleFullscreen}
         />
       )}
 
@@ -463,7 +542,6 @@ export default function App() {
           muted={settings.muted}
           onPause={handlePause}
           onToggleMute={handleToggleMute}
-          onCalibrate={handleCalibrate}
           onActivateBooster={() => {
             engineRef.current?.activateBooster();
           }}
@@ -479,7 +557,6 @@ export default function App() {
             soundEngine.playUiClick();
             setActiveModal('settings');
           }}
-          onCalibrate={handleCalibrate}
           onExitToMenu={handleExitToMenu}
         />
       )}
@@ -523,12 +600,6 @@ export default function App() {
         <SettingsModal
           settings={settings}
           onChange={setSettings}
-          onRequestGyro={async () => {
-            if (!engineRef.current) return 'Mesin 3D belum siap.';
-            const res = await engineRef.current.input.requestGyroPermission();
-            return res.message;
-          }}
-          onCalibrate={handleCalibrate}
           onClose={() => {
             soundEngine.playUiClick();
             setActiveModal('none');

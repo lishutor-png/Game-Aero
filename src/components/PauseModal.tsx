@@ -1,10 +1,9 @@
-import { Play, RotateCcw, Settings, Home, Compass } from 'lucide-react';
+import { Play, RotateCcw, Settings, Home } from 'lucide-react';
 
 interface PauseModalProps {
   onResume: () => void;
   onRestart: () => void;
   onOpenSettings: () => void;
-  onCalibrate: () => void;
   onExitToMenu: () => void;
 }
 
@@ -12,7 +11,6 @@ export function PauseModal({
   onResume,
   onRestart,
   onOpenSettings,
-  onCalibrate,
   onExitToMenu,
 }: PauseModalProps) {
   return (
@@ -35,7 +33,7 @@ export function PauseModal({
           Permainan Dijeda
         </h2>
         <p className="text-xs sm:text-sm text-center mb-4" style={{ color: 'var(--ui-text-muted)' }}>
-          Ambil napas sejenak atau sesuaikan sensitivitas sensor.
+          Ambil napas sejenak atau atur sensitivitas kemudi.
         </p>
 
         <div className="flex flex-col gap-2">
@@ -50,20 +48,6 @@ export function PauseModal({
           >
             <Play className="w-4 h-4 fill-current" aria-hidden="true" />
             <span>Lanjutkan Terbang</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={onCalibrate}
-            className="a11y-focus w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm border cursor-pointer"
-            style={{
-              backgroundColor: 'var(--ui-surface)',
-              borderColor: 'var(--ui-border)',
-              color: 'var(--ui-text)',
-            }}
-          >
-            <Compass className="w-4 h-4" aria-hidden="true" />
-            <span>Kalibrasi Tengah Giroskop</span>
           </button>
 
           <button

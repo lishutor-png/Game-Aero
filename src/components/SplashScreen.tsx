@@ -50,7 +50,7 @@ export function SplashScreen({ onComplete, reducedMotion }: SplashScreenProps) {
           AERO<span className="text-sky-400">GLIDE</span> 3D
         </h1>
         <p className="text-xs sm:text-base text-slate-300 mb-4 sm:mb-7">
-          Terbang melintasi cakrawala dengan kendali giroskop yang halus
+          Terbang melintasi cakrawala dengan kendali sentuh &amp; tombol yang ringan dan responsif
         </p>
 
         {/* Progress Bar */}

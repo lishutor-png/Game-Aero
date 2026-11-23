@@ -1,4 +1,4 @@
-import { Pause, Shield, Zap, Volume2, VolumeX, Compass, Heart, Flame, Coins } from 'lucide-react';
+import { Pause, Shield, Zap, Volume2, VolumeX, Heart, Flame, Coins } from 'lucide-react';
 import { ENVIRONMENT_THEMES } from '../game/themes';
 import { PLANE_CATALOG } from '../game/planes';
 import type { GameMode, HudSnapshot } from '../types/game';
@@ -10,7 +10,6 @@ interface GameHudProps {
   muted: boolean;
   onPause: () => void;
   onToggleMute: () => void;
-  onCalibrate: () => void;
   onActivateBooster: () => void;
 }
 
@@ -21,7 +20,6 @@ export function GameHud({
   muted,
   onPause,
   onToggleMute,
-  onCalibrate,
   onActivateBooster,
 }: GameHudProps) {
   const theme = ENVIRONMENT_THEMES[hud.themeId];
@@ -29,17 +27,25 @@ export function GameHud({
   const turboPct = hud.turboDuration > 0 ? Math.min(100, (hud.turboRemaining / hud.turboDuration) * 100) : 0;
   const steerPct = 50 + hud.steerInput * 44;
 
-  const boosterReady = hud.hasBooster && hud.boosterActiveRemaining <= 0 && hud.boosterCooldownRemaining <= 0;
+  const hasJetAbility = hud.maxJetCharges > 0;
   const boosterActive = hud.boosterActiveRemaining > 0;
-  const boosterCooldownPct =
-    hud.boosterCooldownTotal > 0
-      ? Math.max(0, Math.min(100, (1 - hud.boosterCooldownRemaining / hud.boosterCooldownTotal) * 100))
+  const boosterReady = hasJetAbility && hud.jetCharges > 0 && !boosterActive;
+  const jetRecharging = hasJetAbility && hud.jetCharges < hud.maxJetCharges;
+  const jetRechargePct =
+    jetRecharging && hud.rechargeIntervalSec > 0
+      ? Math.max(0, Math.min(100, (1 - hud.jetRechargeRemaining / hud.rechargeIntervalSec) * 100))
       : 100;
 
   return (
     <div
       aria-label="Antarmuka Penerbangan"
       className="fixed inset-0 z-20 flex flex-col justify-between p-2.5 sm:p-4 pointer-events-none"
+      style={{
+        paddingTop: 'max(0.625rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))',
+        paddingLeft: 'max(0.625rem, env(safe-area-inset-left))',
+        paddingRight: 'max(0.625rem, env(safe-area-inset-right))',
+      }}
     >
       {/* Top Perimeter Cluster */}
       <div className="flex items-start justify-between gap-2.5">
@@ -52,27 +58,48 @@ export function GameHud({
             color: 'var(--ui-text)',
           }}
         >
-          {/* Lives Hearts Row */}
+          {/* Lives Hearts & Per-Life Durability Row */}
           {mode === 'standard' && (
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <div className="flex items-center gap-1" aria-label={`Nyawa tersisa ${hud.lives} dari ${hud.maxLives}`}>
-                {Array.from({ length: hud.maxLives }).map((_, idx) => (
-                  <Heart
-                    key={idx}
-                    className="w-4 h-4"
-                    style={{
-                      color: idx < hud.lives ? '#ef4444' : 'var(--ui-text-muted)',
-                      fill: idx < hud.lives ? '#ef4444' : 'transparent',
-                      opacity: idx < hud.lives ? 1 : 0.35,
-                    }}
-                    aria-hidden="true"
-                  />
-                ))}
+            <div className="mb-1.5 space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1" aria-label={`Nyawa tersisa ${hud.lives} dari ${hud.maxLives}`}>
+                  {Array.from({ length: hud.maxLives }).map((_, idx) => (
+                    <Heart
+                      key={idx}
+                      className="w-4 h-4"
+                      style={{
+                        color: idx < hud.lives ? '#ef4444' : 'var(--ui-text-muted)',
+                        fill: idx < hud.lives ? '#ef4444' : 'transparent',
+                        opacity: idx < hud.lives ? 1 : 0.35,
+                      }}
+                      aria-hidden="true"
+                    />
+                  ))}
+                </div>
+                <span className="text-[11px] font-bold inline-flex items-center gap-1 tabular-nums" style={{ color: 'var(--ui-amber)' }}>
+                  <Coins className="w-3 h-3" aria-hidden="true" />
+                  +{hud.pointsEarned}
+                </span>
               </div>
-              <span className="text-[11px] font-bold inline-flex items-center gap-1 tabular-nums" style={{ color: 'var(--ui-amber)' }}>
-                <Coins className="w-3 h-3" aria-hidden="true" />
-                +{hud.pointsEarned}
-              </span>
+
+              <div className="flex items-center gap-2">
+                <div
+                  className="flex-1 h-1.5 rounded-full overflow-hidden"
+                  style={{ backgroundColor: 'var(--ui-surface-muted)' }}
+                  aria-label={`Ketahanan nyawa ${hud.durability} dari ${hud.maxDurability}`}
+                >
+                  <div
+                    className="h-full rounded-full transition-all duration-150"
+                    style={{
+                      width: `${hud.maxDurability > 0 ? Math.min(100, (hud.durability / hud.maxDurability) * 100) : 0}%`,
+                      backgroundColor: hud.durability <= 25 ? '#ef4444' : '#14b8a6',
+                    }}
+                  />
+                </div>
+                <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--ui-text-muted)' }}>
+                  {hud.durability}/{hud.maxDurability}
+                </span>
+              </div>
             </div>
           )}
 
@@ -116,7 +143,7 @@ export function GameHud({
           )}
         </div>
 
-        {/* Top-Center: Armor, Power-ups or Practice Guidance */}
+        {/* Top-Center: Recharging Pelindung, Item Power-ups or Practice Guidance */}
         <div className="flex flex-col items-center gap-1.5 max-w-md">
           {mode === 'practice' && (
             <div
@@ -133,17 +160,24 @@ export function GameHud({
           )}
 
           <div className="flex flex-wrap items-center justify-center gap-1.5">
-            {hud.armorRemaining > 0 && (
+            {hud.maxArmor > 0 && (
               <div
-                className="a11y-card inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold shadow-sm"
+                className="a11y-card inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold shadow-sm tabular-nums"
                 style={{
-                  backgroundColor: 'var(--ui-amber)',
+                  backgroundColor: hud.armorRemaining > 0 ? 'var(--ui-amber)' : 'var(--ui-bg)',
                   borderColor: 'var(--ui-border)',
-                  color: '#ffffff',
+                  color: hud.armorRemaining > 0 ? '#ffffff' : 'var(--ui-text)',
                 }}
               >
                 <Shield className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Pelindung: {hud.armorRemaining}x Aman</span>
+                <span>
+                  Pelindung: {hud.armorRemaining}/{hud.maxArmor}
+                </span>
+                {hud.armorRemaining < hud.maxArmor && (
+                  <span className="opacity-85 text-[11px]">
+                    (+1 dlm {Math.max(0.1, hud.armorRechargeRemaining).toFixed(1)}d)
+                  </span>
+                )}
               </div>
             )}
 
@@ -151,13 +185,13 @@ export function GameHud({
               <div
                 className="a11y-card inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold shadow-sm"
                 style={{
-                  backgroundColor: 'var(--ui-success)',
-                  borderColor: 'var(--ui-border)',
+                  backgroundColor: '#0d9488',
+                  borderColor: '#5eead4',
                   color: '#ffffff',
                 }}
               >
                 <Shield className="w-3.5 h-3.5" aria-hidden="true" />
-                <span>Perisai Energi</span>
+                <span>Perisai Item Aktif</span>
               </div>
             )}
 
@@ -171,7 +205,7 @@ export function GameHud({
                 }}
               >
                 <Zap className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="tabular-nums">Turbo {hud.turboRemaining.toFixed(1)}d</span>
+                <span className="tabular-nums">Boost {hud.turboRemaining.toFixed(1)}d</span>
                 <div className="w-12 h-1.5 rounded-full overflow-hidden bg-black/25">
                   <div className="h-full bg-white" style={{ width: `${turboPct}%` }} />
                 </div>
@@ -180,24 +214,8 @@ export function GameHud({
           </div>
         </div>
 
-        {/* Top-Right: Audio, Calibrate & Pause */}
+        {/* Top-Right: Audio & Pause */}
         <div className="pointer-events-auto flex items-center gap-1.5 sm:gap-2">
-          <button
-            type="button"
-            onClick={onCalibrate}
-            title="Kalibrasi Posisi Tengah Giroskop"
-            aria-label="Kalibrasi posisi tengah giroskop"
-            className="a11y-focus a11y-card p-2 sm:px-3 sm:py-2 rounded-xl border shadow-sm cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold"
-            style={{
-              backgroundColor: 'var(--ui-surface)',
-              borderColor: 'var(--ui-border)',
-              color: 'var(--ui-text)',
-            }}
-          >
-            <Compass className="w-4 h-4" aria-hidden="true" />
-            <span className="hidden md:inline">Kalibrasi</span>
-          </button>
-
           <button
             type="button"
             onClick={onToggleMute}
@@ -230,7 +248,7 @@ export function GameHud({
         </div>
       </div>
 
-      {/* Bottom Perimeter: Theme Badge, Gyro Horizon Gauge & Optional Active Booster Button */}
+      {/* Bottom Perimeter: Theme Badge, Steering Indicator & Jet Booster Button */}
       <div className="flex items-end justify-between gap-3">
         <div
           className="hidden sm:block text-xs font-medium px-3 py-1.5 rounded-lg border"
@@ -252,7 +270,7 @@ export function GameHud({
           }}
         >
           <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--ui-text-muted)' }}>
-            {hud.activeControl === 'gyro' ? 'Giroskop' : hud.activeControl === 'touch' ? 'Sentuh' : 'Keyboard'}
+            {hud.activeControl === 'touch' ? 'Sentuh' : 'Keyboard'}
           </span>
           <div
             className="relative w-24 sm:w-32 h-2 rounded-full overflow-hidden"
@@ -271,13 +289,13 @@ export function GameHud({
               }}
             />
           </div>
-          <span className="text-xs font-bold tabular-nums w-10 text-right">
-            {hud.tiltAngleDeg >= 0 ? `+${Math.round(hud.tiltAngleDeg)}°` : `${Math.round(hud.tiltAngleDeg)}°`}
+          <span className="text-[11px] font-bold tabular-nums w-12 text-right">
+            {hud.steerInput < -0.1 ? 'Kiri' : hud.steerInput > 0.1 ? 'Kanan' : 'Lurus'}
           </span>
         </div>
 
-        {/* Active Booster Button (Bottom-Right Thumb Zone) */}
-        {hud.hasBooster ? (
+        {/* Active Jet Booster Button (Bottom-Right Thumb Zone) */}
+        {hasJetAbility ? (
           <button
             type="button"
             disabled={!boosterReady}
@@ -287,14 +305,14 @@ export function GameHud({
             }}
             onClick={(e) => {
               e.stopPropagation();
-              onActivateBooster();
+              if (boosterReady) onActivateBooster();
             }}
             aria-label={
               boosterReady
-                ? 'Aktifkan Booster Kecepatan'
+                ? `Aktifkan Jet Booster (${hud.jetCharges} dari ${hud.maxJetCharges} siap)`
                 : boosterActive
-                  ? 'Booster sedang aktif'
-                  : 'Booster sedang mengisi ulang'
+                  ? 'Jet Booster sedang aktif'
+                  : 'Jet Booster sedang mengisi ulang'
             }
             className="a11y-focus pointer-events-auto relative overflow-hidden inline-flex items-center gap-2 px-4 py-3 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg border transition-transform active:scale-95 cursor-pointer disabled:cursor-not-allowed"
             style={{
@@ -307,21 +325,26 @@ export function GameHud({
               color: boosterReady || boosterActive ? '#ffffff' : 'var(--ui-text)',
             }}
           >
-            {!boosterReady && !boosterActive && (
+            {jetRecharging && !boosterActive && (
               <div
                 className="absolute left-0 top-0 bottom-0 opacity-25"
-                style={{ width: `${boosterCooldownPct}%`, backgroundColor: '#f97316' }}
+                style={{ width: `${jetRechargePct}%`, backgroundColor: '#f97316' }}
                 aria-hidden="true"
               />
             )}
             <Flame className="w-4 h-4 sm:w-5 sm:h-5 relative z-10" aria-hidden="true" />
-            <span className="relative z-10 tabular-nums">
-              {boosterActive
-                ? `BOOST ${hud.boosterActiveRemaining.toFixed(1)}d`
-                : boosterReady
-                  ? 'BOOSTER'
-                  : `ISI ${hud.boosterCooldownRemaining.toFixed(0)}d`}
-            </span>
+            <div className="relative z-10 flex flex-col items-start leading-tight tabular-nums">
+              <span>
+                {boosterActive
+                  ? `BOOST ${hud.boosterActiveRemaining.toFixed(1)}d`
+                  : `JET ${hud.jetCharges}/${hud.maxJetCharges}`}
+              </span>
+              {jetRecharging && !boosterActive && (
+                <span className="text-[10px] font-semibold opacity-90">
+                  Isi +1: {Math.max(0.1, hud.jetRechargeRemaining).toFixed(1)}d
+                </span>
+              )}
+            </div>
           </button>
         ) : (
           <div className="hidden sm:block w-16" aria-hidden="true" />

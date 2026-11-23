@@ -217,7 +217,7 @@ class ProceduralAudioEngine {
     osc.stop(now + 0.17);
   }
 
-  public playPowerUp(kind: 'turbo' | 'shield' | 'bonus'): void {
+  public playPowerUp(kind: 'turbo' | 'shield' | 'bonus' | 'heart'): void {
     const ctx = this.ensureContext();
     if (!ctx || !this.sfxGain || this.muted) return;
     const now = ctx.currentTime;
@@ -226,7 +226,9 @@ class ProceduralAudioEngine {
         ? [523.25, 659.25, 783.99, 1046.5]
         : kind === 'shield'
           ? [392.0, 493.88, 587.33, 783.99]
-          : [587.33, 880.0];
+          : kind === 'heart'
+            ? [523.25, 659.25, 783.99]
+            : [587.33, 880.0];
 
     notes.forEach((freq, idx) => {
       if (!this.sfxGain) return;

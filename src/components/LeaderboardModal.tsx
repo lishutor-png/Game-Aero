@@ -38,6 +38,12 @@ export function LeaderboardModal({ onClose }: LeaderboardModalProps) {
     return <Keyboard className="w-3.5 h-3.5" aria-label="Keyboard" />;
   };
 
+  const getControlLabel = (ctrl: string) => {
+    if (ctrl === 'gyro') return 'Giro';
+    if (ctrl === 'touch') return 'Sentuh';
+    return 'Tombol';
+  };
+
   return (
     <div
       role="dialog"
@@ -159,7 +165,7 @@ export function LeaderboardModal({ onClose }: LeaderboardModalProps) {
                         <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--ui-text-muted)' }}>
                           <span className="inline-flex items-center gap-1">
                             {renderControlIcon(entry.controlUsed)}
-                            <span>{entry.controlUsed === 'gyro' ? 'Giro' : entry.controlUsed === 'touch' ? 'Sentuh' : 'Tombol'}</span>
+                            <span>{getControlLabel(entry.controlUsed)}</span>
                           </span>
                           <span>·</span>
                           <span>{theme.name}</span>
