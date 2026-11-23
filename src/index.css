@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --ui-font-scale: 1;
+    --ui-bg: rgba(248, 250, 252, 0.94);
+    --ui-bg-solid: #f8fafc;
+    --ui-surface: rgba(255, 255, 255, 0.96);
+    --ui-surface-muted: #e2e8f0;
+    --ui-text: #0f172a;
+    --ui-text-muted: #475569;
+    --ui-border: rgba(15, 23, 42, 0.14);
+    --ui-accent: #0284c7;
+    --ui-accent-hover: #0369a1;
+    --ui-accent-text: #ffffff;
+    --ui-focus: #0284c7;
+    --ui-danger: #dc2626;
+    --ui-success: #0d9488;
+    --ui-amber: #d97706;
+  }
+
+  .theme-dark {
+    --ui-bg: rgba(11, 17, 32, 0.94);
+    --ui-bg-solid: #0b1120;
+    --ui-surface: rgba(21, 31, 50, 0.96);
+    --ui-surface-muted: #1e293b;
+    --ui-text: #f1f5f9;
+    --ui-text-muted: #94a3b8;
+    --ui-border: rgba(148, 163, 184, 0.24);
+    --ui-accent: #38bdf8;
+    --ui-accent-hover: #0ea5e9;
+    --ui-accent-text: #082f49;
+    --ui-focus: #38bdf8;
+    --ui-danger: #f87171;
+    --ui-success: #2dd4bf;
+    --ui-amber: #fbbf24;
+  }
+
+  .high-contrast {
+    --ui-bg: #ffffff;
+    --ui-bg-solid: #ffffff;
+    --ui-surface: #ffffff;
+    --ui-surface-muted: #f1f5f9;
+    --ui-text: #000000;
+    --ui-text-muted: #111827;
+    --ui-border: #000000;
+    --ui-accent: #0044cc;
+    --ui-accent-hover: #002b80;
+    --ui-accent-text: #ffffff;
+    --ui-focus: #ff6b00;
+    --ui-danger: #b91c1c;
+    --ui-success: #047857;
+    --ui-amber: #b45309;
+  }
+
+  .theme-dark.high-contrast {
+    --ui-bg: #000000;
+    --ui-bg-solid: #000000;
+    --ui-surface: #0a0a0a;
+    --ui-surface-muted: #171717;
+    --ui-text: #ffffff;
+    --ui-text-muted: #f3f4f6;
+    --ui-border: #ffffff;
+    --ui-accent: #ffea00;
+    --ui-accent-hover: #ffd000;
+    --ui-accent-text: #000000;
+    --ui-focus: #00ffff;
+    --ui-danger: #ff4d4d;
+    --ui-success: #00ff9d;
+    --ui-amber: #ffae00;
+  }
+
+  html {
+    font-size: calc(16px * var(--ui-font-scale));
+    font-family: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    background-color: #0b1120;
+    color: var(--ui-text);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.a11y-focus:focus-visible {
+  outline: 3px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.high-contrast .a11y-card {
+  border-width: 2px !important;
+  box-shadow: none !important;
+}
+
+.sr-only-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
