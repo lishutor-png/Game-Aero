@@ -515,7 +515,7 @@ export function HangarModal({
             </div>
             <div className="flex items-center gap-2">
               <Heart className="w-4 h-4 shrink-0 text-red-500 fill-red-500" aria-hidden="true" />
-              <span><strong>Hati (10%):</strong> +1 Nyawa</span>
+              <span><strong>Hati (5%):</strong> +1 Nyawa</span>
             </div>
             <div className="flex items-center gap-2">
               <Flame className="w-4 h-4 shrink-0 text-orange-500 fill-orange-500" aria-hidden="true" />

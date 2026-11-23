@@ -1094,15 +1094,15 @@ export class FlightWorldEngine {
     if (forcedKind) {
       kind = forcedKind;
     } else {
-      // Rasio kemunculan: Hati 10%, Skor 15%, Perisai 15%, Booster 15% (45% tidak muncul)
+      // Rasio kemunculan: Hati 5%, Skor 15%, Perisai 15%, Booster 15% (50% tidak muncul)
       const r = Math.random();
-      if (r < 0.1) {
+      if (r < 0.05) {
         kind = 'heart';
-      } else if (r < 0.25) {
+      } else if (r < 0.2) {
         kind = 'bonus';
-      } else if (r < 0.4) {
+      } else if (r < 0.35) {
         kind = 'shield';
-      } else if (r < 0.55) {
+      } else if (r < 0.5) {
         kind = 'turbo';
       } else {
         return;
