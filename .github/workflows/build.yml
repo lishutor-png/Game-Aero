@@ -21,7 +21,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: TypeScript typecheck
         run: npm run lint
@@ -61,7 +61,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install project dependencies
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build Web assets for Android
         env:
@@ -69,7 +69,7 @@ jobs:
         run: npm run build
 
       - name: Install Capacitor CLI & Android platform
-        run: npm install --no-save @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+        run: npm install --no-save --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
 
       - name: Initialize & sync Android Capacitor project
         run: |
