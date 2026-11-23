@@ -506,12 +506,12 @@ export function HangarModal({
           style={{ backgroundColor: 'var(--ui-surface)', borderColor: 'var(--ui-border)' }}
         >
           <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--ui-text-muted)' }}>
-            Rasio Kemunculan Item Unik &amp; Skor (+5 per Gawang)
+            Rasio Kemunculan Item Unik &amp; Skor (+2 per Gawang)
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div className="flex items-center gap-2">
               <Star className="w-4 h-4 shrink-0 text-amber-400 fill-amber-400" aria-hidden="true" />
-              <span><strong>Skor (30%):</strong> +10 Skor</span>
+              <span><strong>Skor (15%):</strong> +5 Skor</span>
             </div>
             <div className="flex items-center gap-2">
               <Heart className="w-4 h-4 shrink-0 text-red-500 fill-red-500" aria-hidden="true" />

@@ -1094,15 +1094,15 @@ export class FlightWorldEngine {
     if (forcedKind) {
       kind = forcedKind;
     } else {
-      // Rasio kemunculan: Hati 10%, Skor 30%, Perisai 15%, Booster 15% (30% tidak muncul)
+      // Rasio kemunculan: Hati 10%, Skor 15%, Perisai 15%, Booster 15% (45% tidak muncul)
       const r = Math.random();
       if (r < 0.1) {
         kind = 'heart';
-      } else if (r < 0.4) {
+      } else if (r < 0.25) {
         kind = 'bonus';
-      } else if (r < 0.55) {
+      } else if (r < 0.4) {
         kind = 'shield';
-      } else if (r < 0.7) {
+      } else if (r < 0.55) {
         kind = 'turbo';
       } else {
         return;
@@ -1138,13 +1138,13 @@ export class FlightWorldEngine {
     if (this.practiceStep === 1) {
       return {
         step: 1,
-        message: 'Langkah 2/3: Terbang melewati Gerbang Biru untuk mendapat +5 Skor!',
+        message: 'Langkah 2/3: Terbang melewati Gerbang Biru untuk mendapat +2 Skor!',
       };
     }
     if (this.practiceStep === 2) {
       return {
         step: 2,
-        message: 'Langkah 3/3: Ambil Bintang Skor (+10), Hati (+1 Nyawa), Petir Boost, atau Perisai!',
+        message: 'Langkah 3/3: Ambil Bintang Skor (+5), Hati (+1 Nyawa), Petir Boost, atau Perisai!',
       };
     }
     return {
@@ -1417,14 +1417,14 @@ export class FlightWorldEngine {
 
       ob.group.position.set(ob.x, GROUND_Y, ob.z);
 
-      // Gate pass bonus check (+5 per gate!)
+      // Gate pass bonus check (+2 per gate!)
       if (ob.kind === 'gate' && !ob.gateScored && ob.z > 0.3) {
         const dx = Math.abs(this.planeX - ob.x);
         if (dx < ob.gateGapHalf - 0.35) {
           ob.gateScored = true;
           this.combo += 1;
           if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-          this.bonusScore += 5;
+          this.bonusScore += 2;
           soundEngine.playGatePass(this.combo);
           this.emitParticles(this.planeX, PLANE_Y + 0.3, -0.5, 0x38bdf8, 10);
           if (this.gameMode === 'practice' && this.practiceStep === 1) {
@@ -1550,16 +1550,16 @@ export class FlightWorldEngine {
         this.callbacks.onAnnounce(`Item Hati! Nyawa bertambah menjadi ${this.lives}.`);
       } else {
         this.durability = this.planeStats.maxDurabilityPerLife;
-        this.bonusScore += 5;
-        this.callbacks.onAnnounce('Item Hati! Ketahanan pulih penuh & bonus +5 skor.');
+        this.bonusScore += 2;
+        this.callbacks.onAnnounce('Item Hati! Ketahanan pulih penuh & bonus +2 skor.');
       }
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xef4444, 16);
     } else {
       this.combo += 1;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-      this.bonusScore += 10;
+      this.bonusScore += 5;
       this.emitParticles(this.planeX, PLANE_Y, 0, 0xfacc15, 14);
-      this.callbacks.onAnnounce('Item Skor! +10 Skor.');
+      this.callbacks.onAnnounce('Item Skor! +5 Skor.');
     }
 
     if (this.gameMode === 'practice' && this.practiceStep === 2) {
