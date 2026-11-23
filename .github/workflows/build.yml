@@ -58,7 +58,22 @@ jobs:
           java-version: '17'
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK_DIR" ]; then
+            echo "Android SDK directory not found at $SDK_DIR"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          SDKMANAGER=$(find "$SDK_DIR/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)
+          if [ -n "$SDKMANAGER" ]; then
+            set +o pipefail
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" --licenses >/dev/null 2>&1 || true
+            yes | "$SDKMANAGER" --sdk_root="$SDK_DIR" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          else
+            echo "sdkmanager not found, using preinstalled Android SDK at $SDK_DIR"
+          fi
 
       - name: Install project dependencies
         run: npm install --legacy-peer-deps
@@ -77,15 +92,16 @@ jobs:
             npx cap add android
           fi
           npx cap sync android
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Configure Android icon & landscape orientation
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           if [ -f "$MANIFEST" ] && ! grep -q "android:screenOrientation" "$MANIFEST"; then
-            sed -i 's/<activity /<activity android:screenOrientation="sensorLandscape" /' "$MANIFEST"
+            sed -i 's/<activity\([[:space:]]\|$\)/<activity android:screenOrientation="sensorLandscape"\1/' "$MANIFEST"
           fi
           if [ -f "public/pwa-512x512.png" ]; then
-            for dir in android/app/src/main/res/mipmap-*; do
+            for dir in android/app/src/main/res/mipmap-*dpi; do
               if [ -d "$dir" ]; then
                 cp public/pwa-512x512.png "$dir/ic_launcher.png" || true
                 cp public/pwa-512x512.png "$dir/ic_launcher_round.png" || true
