@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FlightWorldEngine } from './game/worldEngine';
 import { soundEngine } from './game/audio';
+import { normalizeMapId } from './game/themes';
 import {
   BALANCE_JET_COSTS,
   BALANCE_SHIELD_COSTS,
@@ -12,11 +13,14 @@ import {
   LV10_RECHARGE_COSTS,
   LV10_SPEED_COSTS,
   LV10_STRENGTH_COSTS,
+  MODEL_TIER_CATALOG,
   PLANE_CATALOG,
   TITAN_SHIELD_COSTS,
   VORTEX_JET_COSTS,
+  WEAPON_CATALOG,
   computeEffectivePlaneStats,
   getPlaneMaxLives,
+  getPlaneModelTier,
 } from './game/planes';
 import { SplashScreen } from './components/SplashScreen';
 import { MainMenu } from './components/MainMenu';
@@ -34,10 +38,13 @@ import type {
   GameOverSummary,
   GameSettings,
   HudSnapshot,
+  MapId,
   PlaneId,
+  PlaneModelTier,
   PlayerProgress,
   PlayerUpgrades,
   ScreenState,
+  WeaponType,
 } from './types/game';
 
 const SETTINGS_KEY = 'aeroglide_settings_v2';
@@ -48,7 +55,7 @@ const PROGRESS_KEY = 'aeroglide_progress_v2';
 const DEFAULT_SETTINGS: GameSettings = {
   steeringSensitivity: 1.15,
   randomThemePerSession: true,
-  selectedTheme: 'morning',
+  selectedTheme: 'space',
   graphicsQuality: 'auto',
   musicVolume: 0.45,
   sfxVolume: 0.75,
@@ -83,15 +90,27 @@ const INITIAL_HUD: HudSnapshot = {
   rechargeIntervalSec: BASE_RECHARGE_SECONDS,
   pointsEarned: 0,
   hasShield: false,
+  shieldActiveRemaining: 0,
   turboRemaining: 0,
   turboDuration: 5.5,
   boosterActiveRemaining: 0,
   planeId: 'balance',
+  modelTier: 1,
+  weaponType: 'signature',
+  effectiveWeaponName: 'Aero Lock',
+  effectiveWeaponColorCss: '#16a34a',
+  weaponOverrideRemaining: 0,
   steerInput: 0,
+  verticalInput: 0,
   activeControl: 'keyboard',
+  enemiesDestroyed: 0,
+  bossActive: false,
+  bossName: '',
+  bossHp: 0,
+  bossMaxHp: 1,
   practiceStep: 0,
   practiceMessage: '',
-  themeId: 'morning',
+  themeId: 'space',
 };
 
 const UPGRADE_COST_MAP: Record<keyof PlayerUpgrades, number[]> = {
@@ -123,11 +142,29 @@ function loadJson<T>(key: string, fallback: T): T {
   }
 }
 
+function loadSettings(): GameSettings {
+  const merged = loadJson(SETTINGS_KEY, DEFAULT_SETTINGS);
+  return {
+    ...merged,
+    selectedTheme: normalizeMapId(merged.selectedTheme),
+  };
+}
+
 function loadProgress(): PlayerProgress {
   try {
     const raw = localStorage.getItem(PROGRESS_KEY);
     if (!raw) return DEFAULT_PROGRESS;
     const parsed = JSON.parse(raw) as Partial<PlayerProgress>;
+    const validSaved = Array.isArray(parsed.unlockedWeapons)
+      ? parsed.unlockedWeapons.filter((w): w is WeaponType => w in WEAPON_CATALOG)
+      : [];
+    const unlockedWeapons: WeaponType[] = Array.from(new Set<WeaponType>(['signature', 'single', ...validSaved]));
+    const isUntouchedLegacySingle =
+      parsed.selectedWeapon === 'single' && validSaved.length <= 1;
+    const selectedWeapon: WeaponType =
+      !isUntouchedLegacySingle && parsed.selectedWeapon && unlockedWeapons.includes(parsed.selectedWeapon)
+        ? parsed.selectedWeapon
+        : 'signature';
     return {
       ...DEFAULT_PROGRESS,
       ...parsed,
@@ -135,6 +172,12 @@ function loadProgress(): PlayerProgress {
         ...DEFAULT_PROGRESS.heartsBonus,
         ...(parsed.heartsBonus ?? {}),
       },
+      planeTiers: {
+        ...DEFAULT_PROGRESS.planeTiers,
+        ...(parsed.planeTiers ?? {}),
+      },
+      selectedWeapon,
+      unlockedWeapons,
       upgrades: {
         ...DEFAULT_PROGRESS.upgrades,
         ...(parsed.upgrades ?? {}),
@@ -167,7 +210,7 @@ export default function App() {
 
   const [screen, setScreen] = useState<ScreenState>('splash');
   const [gameMode, setGameMode] = useState<GameMode>('standard');
-  const [settings, setSettings] = useState<GameSettings>(() => loadJson(SETTINGS_KEY, DEFAULT_SETTINGS));
+  const [settings, setSettings] = useState<GameSettings>(loadSettings);
   const [accessibility, setAccessibility] = useState<AccessibilitySettings>(() =>
     loadJson(A11Y_KEY, DEFAULT_A11Y),
   );
@@ -322,7 +365,8 @@ export default function App() {
       bestScore,
     );
 
-    engine.setPlaneType(progress.selectedPlane);
+    engine.setPlaneType(progress.selectedPlane, getPlaneModelTier(progress, progress.selectedPlane));
+    engine.applyTheme(settings.selectedTheme);
     engine.applySettings(settings, {
       highContrast: accessibility.highContrast,
       reducedMotion: accessibility.reducedMotion,
@@ -371,9 +415,31 @@ export default function App() {
   const handleSelectPlane = useCallback(
     (planeId: PlaneId) => {
       soundEngine.playUiClick();
-      setProgress((prev) => ({ ...prev, selectedPlane: planeId }));
-      engineRef.current?.setPlaneType(planeId);
+      setProgress((prev) => {
+        const tier = getPlaneModelTier(prev, planeId);
+        engineRef.current?.setPlaneType(planeId, tier);
+        return { ...prev, selectedPlane: planeId };
+      });
       announce(`Pesawat diganti ke ${PLANE_CATALOG[planeId].name}.`);
+    },
+    [announce],
+  );
+
+  const handleSelectMap = useCallback(
+    (mapId: MapId | 'random') => {
+      soundEngine.playUiClick();
+      if (mapId === 'random') {
+        setSettings((prev) => ({ ...prev, randomThemePerSession: true }));
+        announce('Mode peta acak setiap sesi aktif.');
+      } else {
+        setSettings((prev) => ({
+          ...prev,
+          randomThemePerSession: false,
+          selectedTheme: mapId,
+        }));
+        engineRef.current?.applyTheme(mapId);
+        announce(`Peta dipilih: ${mapId}.`);
+      }
     },
     [announce],
   );
@@ -420,6 +486,46 @@ export default function App() {
     });
   }, []);
 
+  const handleUpgradeModelTier = useCallback(() => {
+    setProgress((prev) => {
+      const planeId = prev.selectedPlane;
+      const currentTier = getPlaneModelTier(prev, planeId);
+      if (currentTier >= 4) return prev;
+      const nextTier = (currentTier + 1) as PlaneModelTier;
+      const cost = MODEL_TIER_CATALOG[nextTier].upgradeCost;
+      if (prev.points < cost) return prev;
+      soundEngine.playPowerUp('shield');
+      engineRef.current?.setPlaneType(planeId, nextTier);
+      return {
+        ...prev,
+        points: prev.points - cost,
+        planeTiers: {
+          ...prev.planeTiers,
+          [planeId]: nextTier,
+        },
+      };
+    });
+  }, []);
+
+  const handleSelectOrBuyWeapon = useCallback((weaponId: WeaponType) => {
+    setProgress((prev) => {
+      const unlocked = prev.unlockedWeapons.includes(weaponId);
+      if (unlocked) {
+        soundEngine.playUiClick();
+        return { ...prev, selectedWeapon: weaponId };
+      }
+      const def = WEAPON_CATALOG[weaponId];
+      if (prev.points < def.cost) return prev;
+      soundEngine.playPowerUp('turbo');
+      return {
+        ...prev,
+        points: prev.points - def.cost,
+        unlockedWeapons: [...prev.unlockedWeapons, weaponId],
+        selectedWeapon: weaponId,
+      };
+    });
+  }, []);
+
   const handlePause = useCallback(() => {
     soundEngine.playUiClick();
     engineRef.current?.pause();
@@ -437,11 +543,11 @@ export default function App() {
   const handleExitToMenu = useCallback(() => {
     soundEngine.playUiClick();
     engineRef.current?.returnToMenu();
-    engineRef.current?.setPlaneType(progress.selectedPlane);
+    engineRef.current?.setPlaneType(progress.selectedPlane, getPlaneModelTier(progress, progress.selectedPlane));
     setGameOverSummary(null);
     setScreen('menu');
     announce('Kembali ke Menu Utama.');
-  }, [announce, progress.selectedPlane]);
+  }, [announce, progress]);
 
   const handleToggleMute = useCallback(() => {
     setSettings((prev) => {
@@ -508,6 +614,7 @@ export default function App() {
           canFullscreen={canFullscreen}
           onStartGame={() => void startFlight('standard')}
           onStartPractice={() => void startFlight('practice')}
+          onSelectMap={handleSelectMap}
           onOpenHangar={() => {
             soundEngine.playUiClick();
             setActiveModal('hangar');
@@ -544,6 +651,12 @@ export default function App() {
           onToggleMute={handleToggleMute}
           onActivateBooster={() => {
             engineRef.current?.activateBooster();
+          }}
+          onActivateShield={() => {
+            engineRef.current?.activateShield();
+          }}
+          onControlButton={(action, pressed) => {
+            engineRef.current?.setControlButton(action, pressed);
           }}
         />
       )}
@@ -588,6 +701,8 @@ export default function App() {
           onSelectPlane={handleSelectPlane}
           onBuyMaxLife={handleBuyMaxLife}
           onBuyUpgrade={handleBuyUpgrade}
+          onUpgradeModelTier={handleUpgradeModelTier}
+          onSelectOrBuyWeapon={handleSelectOrBuyWeapon}
           onClose={() => {
             soundEngine.playUiClick();
             setActiveModal('none');
@@ -599,7 +714,12 @@ export default function App() {
       {activeModal === 'settings' && (
         <SettingsModal
           settings={settings}
-          onChange={setSettings}
+          onChange={(next) => {
+            setSettings(next);
+            if (!next.randomThemePerSession && screen !== 'playing') {
+              engineRef.current?.applyTheme(next.selectedTheme);
+            }
+          }}
           onClose={() => {
             soundEngine.playUiClick();
             setActiveModal('none');

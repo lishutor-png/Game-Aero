@@ -1,5 +1,5 @@
 import { X, Hand, Shuffle, Cpu, Volume2 } from 'lucide-react';
-import { ENVIRONMENT_THEMES, THEME_IDS } from '../game/themes';
+import { ENVIRONMENT_THEMES, THEME_IDS, normalizeMapId } from '../game/themes';
 import type { GameSettings, GraphicsQuality, ThemeId } from '../types/game';
 
 interface SettingsModalProps {
@@ -109,7 +109,7 @@ export function SettingsModal({
                 <span>Cepat (2.0x)</span>
               </div>
               <p className="text-xs pt-1" style={{ color: 'var(--ui-text-muted)' }}>
-                Geser layar ke kiri/kanan pada ponsel atau tekan A/D dan tombol panah pada keyboard.
+                Gunakan tombol sentuh Kiri/Kanan/Naik/Turun &amp; Tembak, geser layar, atau gunakan WASD/Panah, Spasi (Tembak), Shift (Booster), dan Q (Perisai) pada keyboard.
               </p>
             </div>
           </section>
@@ -142,7 +142,7 @@ export function SettingsModal({
               <div className="grid grid-cols-2 gap-2">
                 {THEME_IDS.map((id: ThemeId) => {
                   const t = ENVIRONMENT_THEMES[id];
-                  const selected = settings.selectedTheme === id;
+                  const selected = normalizeMapId(settings.selectedTheme) === id;
                   return (
                     <button
                       key={id}

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { RotateCcw, Home, Trophy, Send, CheckCircle2, Coins, Wrench } from 'lucide-react';
-import { ENVIRONMENT_THEMES } from '../game/themes';
-import { PLANE_CATALOG } from '../game/planes';
+import { ENVIRONMENT_THEMES, normalizeMapId } from '../game/themes';
+import { MODEL_TIER_CATALOG, PLANE_CATALOG, getDisplayWeaponLabel } from '../game/planes';
 import { apiUrl } from '../config/api';
 import type { GameOverSummary } from '../types/game';
 
@@ -32,8 +32,10 @@ export function GameOverModal({
   const [submitDone, setSubmitDone] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
-  const theme = ENVIRONMENT_THEMES[summary.themeId];
+  const theme = ENVIRONMENT_THEMES[normalizeMapId(summary.themeId)];
   const planeDef = PLANE_CATALOG[summary.planeId];
+  const tierDef = MODEL_TIER_CATALOG[summary.modelTier];
+  const weaponDisplay = getDisplayWeaponLabel(summary.planeId, summary.weaponType);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -100,7 +102,7 @@ export function GameOverModal({
               )}
             </div>
             <p className="text-xs mt-0.5" style={{ color: 'var(--ui-text-muted)' }}>
-              {planeDef.name} · Tema: {theme.name}
+              {planeDef.name} (Lv.{tierDef.tier}) · {weaponDisplay.name} · Peta: {theme.name}
             </p>
           </div>
 
@@ -153,10 +155,10 @@ export function GameOverModal({
             </div>
             <div>
               <div className="text-xs" style={{ color: 'var(--ui-text-muted)' }}>
-                Kombo / Power-Up
+                Musuh Hancur / Kombo
               </div>
               <div className="text-base font-bold tabular-nums">
-                {summary.maxCombo}x · {summary.powerUpsCollected}
+                {summary.enemiesDestroyed} musuh · {summary.maxCombo}x
               </div>
             </div>
           </div>

@@ -2,7 +2,10 @@ export type ScreenState = 'splash' | 'menu' | 'playing' | 'paused' | 'gameover';
 
 export type GameMode = 'standard' | 'practice';
 
-export type ThemeId = 'morning' | 'sunset' | 'arctic' | 'midnight';
+export type MapId = 'space' | 'city' | 'forest' | 'desert' | 'snow';
+
+// Keep ThemeId alias for backwards compatibility across components/API
+export type ThemeId = MapId;
 
 export type GraphicsQuality = 'auto' | 'light' | 'high';
 
@@ -10,9 +13,24 @@ export type TextScale = 'normal' | 'large' | 'xlarge';
 
 export type ControlSource = 'keyboard' | 'touch';
 
-export type PowerUpType = 'turbo' | 'shield' | 'bonus' | 'heart';
+export type PowerUpType = 'turbo' | 'shield' | 'bonus' | 'heart' | 'weapon';
 
 export type PlaneId = 'titan' | 'vortex' | 'balance';
+
+export type PlaneModelTier = 1 | 2 | 3 | 4;
+
+export type WeaponType =
+  | 'signature'
+  | 'single'
+  | 'rapid'
+  | 'double'
+  | 'triple'
+  | 'spread'
+  | 'burst'
+  | 'autolock'
+  | 'laser';
+
+export type EnemyKind = 'drone' | 'fighter' | 'interceptor' | 'warship' | 'boss';
 
 export interface PlayerUpgrades {
   titanShield: number; // 0..2 => total 1..3 Pelindung
@@ -37,6 +55,9 @@ export interface PlayerProgress {
   points: number;
   selectedPlane: PlaneId;
   heartsBonus: Record<PlaneId, number>; // per-plane hearts bonus (base 2 for all)
+  planeTiers: Record<PlaneId, PlaneModelTier>; // 1..4 visual & frame evolution
+  selectedWeapon: WeaponType;
+  unlockedWeapons: WeaponType[];
   upgrades: PlayerUpgrades;
 }
 
@@ -44,6 +65,8 @@ export interface EffectivePlaneStats {
   planeId: PlaneId;
   name: string;
   roleLabel: string;
+  modelTier: PlaneModelTier;
+  weaponType: WeaponType;
   maxLives: number;
   maxArmorCharges: number;
   maxJetCharges: number;
@@ -95,12 +118,24 @@ export interface HudSnapshot {
   rechargeIntervalSec: number;
   pointsEarned: number;
   hasShield: boolean;
+  shieldActiveRemaining: number;
   turboRemaining: number; // seconds remaining
   turboDuration: number;
   boosterActiveRemaining: number;
   planeId: PlaneId;
+  modelTier: PlaneModelTier;
+  weaponType: WeaponType;
+  effectiveWeaponName: string;
+  effectiveWeaponColorCss: string;
+  weaponOverrideRemaining: number;
   steerInput: number; // -1 to 1
+  verticalInput: number; // -1 to 1
   activeControl: ControlSource;
+  enemiesDestroyed: number;
+  bossActive: boolean;
+  bossName: string;
+  bossHp: number;
+  bossMaxHp: number;
   practiceStep: number; // 0, 1, 2, 3
   practiceMessage: string;
   themeId: ThemeId;
@@ -111,8 +146,11 @@ export interface GameOverSummary {
   distance: number;
   maxCombo: number;
   powerUpsCollected: number;
+  enemiesDestroyed: number;
   pointsEarned: number;
   planeId: PlaneId;
+  modelTier: PlaneModelTier;
+  weaponType: WeaponType;
   themeId: ThemeId;
   controlUsed: ControlSource;
   mode: GameMode;
@@ -124,7 +162,7 @@ export interface LeaderboardEntry {
   pilotName: string;
   score: number;
   distance: number;
-  themeId: ThemeId;
+  themeId: string;
   controlUsed: ControlSource;
   createdAt: string;
 }

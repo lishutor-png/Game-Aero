@@ -16,11 +16,13 @@ import {
   Maximize2,
   Minimize2,
   ChevronRight,
+  Crosshair,
+  Map as MapIcon,
 } from 'lucide-react';
-import { ENVIRONMENT_THEMES } from '../game/themes';
-import { PLANE_CATALOG, computeEffectivePlaneStats } from '../game/planes';
+import { ENVIRONMENT_THEMES, THEME_IDS, normalizeMapId } from '../game/themes';
+import { PLANE_CATALOG, computeEffectivePlaneStats, getDisplayWeaponLabel } from '../game/planes';
 import { PWAInstallButton } from './PWAInstallButton';
-import type { AccessibilitySettings, GameSettings, PlayerProgress, ThemeId } from '../types/game';
+import type { AccessibilitySettings, GameSettings, MapId, PlayerProgress, ThemeId } from '../types/game';
 
 interface MainMenuProps {
   settings: GameSettings;
@@ -33,6 +35,7 @@ interface MainMenuProps {
   canFullscreen: boolean;
   onStartGame: () => void;
   onStartPractice: () => void;
+  onSelectMap: (mapId: MapId | 'random') => void;
   onOpenHangar: () => void;
   onOpenSettings: () => void;
   onOpenAccessibility: () => void;
@@ -53,6 +56,7 @@ export function MainMenu({
   canFullscreen,
   onStartGame,
   onStartPractice,
+  onSelectMap,
   onOpenHangar,
   onOpenSettings,
   onOpenAccessibility,
@@ -74,10 +78,10 @@ export function MainMenu({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [hasOpenModal, onStartGame]);
 
-  const activeTheme = ENVIRONMENT_THEMES[currentThemeId];
+  const activeTheme = ENVIRONMENT_THEMES[normalizeMapId(currentThemeId)];
   const activePlane = PLANE_CATALOG[progress.selectedPlane];
   const stats = computeEffectivePlaneStats(progress);
-  const speedPct = Math.min(100, Math.round(stats.speedRating * 10));
+  const weaponDisplay = getDisplayWeaponLabel(progress.selectedPlane, stats.weaponType);
 
   return (
     <main
@@ -93,7 +97,7 @@ export function MainMenu({
       {/* Top Bar: Brand Identity + Clean Quick Utilities */}
       <header className="flex items-start justify-between gap-3">
         <div
-          className="a11y-card pointer-events-auto flex items-center gap-3 rounded-2xl px-3.5 py-2.5 border backdrop-blur-md shadow-lg"
+          className="a11y-card pointer-events-auto flex items-center gap-3 rounded-2xl px-3.5 py-2.5 border shadow-lg"
           style={{
             backgroundColor: 'var(--ui-bg)',
             borderColor: 'var(--ui-border)',
@@ -135,7 +139,7 @@ export function MainMenu({
               aria-pressed={isFullscreen}
               aria-label={isFullscreen ? 'Keluar dari layar penuh' : 'Aktifkan layar penuh'}
               title={isFullscreen ? 'Keluar Layar Penuh' : 'Layar Penuh'}
-              className="a11y-focus a11y-card flex items-center gap-1.5 px-3 py-2.5 rounded-xl border backdrop-blur-md text-xs font-semibold shadow-sm cursor-pointer transition-transform active:scale-95 whitespace-nowrap shrink-0"
+              className="a11y-focus a11y-card flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold shadow-sm cursor-pointer transition-transform active:scale-95 whitespace-nowrap shrink-0"
               style={{
                 backgroundColor: 'var(--ui-bg)',
                 borderColor: 'var(--ui-border)',
@@ -152,8 +156,8 @@ export function MainMenu({
             onClick={onToggleDarkMode}
             aria-pressed={accessibility.darkMode}
             aria-label={accessibility.darkMode ? 'Matikan mode gelap' : 'Aktifkan mode gelap malam'}
-            title="Mode Gelap (Malam Hari)"
-            className="a11y-focus a11y-card flex items-center gap-1.5 px-3 py-2.5 rounded-xl border backdrop-blur-md text-xs font-semibold shadow-sm cursor-pointer transition-transform active:scale-95 whitespace-nowrap shrink-0"
+            title="Mode Gelap"
+            className="a11y-focus a11y-card flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold shadow-sm cursor-pointer transition-transform active:scale-95 whitespace-nowrap shrink-0"
             style={{
               backgroundColor: 'var(--ui-bg)',
               borderColor: 'var(--ui-border)',
@@ -170,7 +174,7 @@ export function MainMenu({
             aria-pressed={settings.muted}
             aria-label={settings.muted ? 'Nyalakan suara dan musik' : 'Bisukan suara dan musik'}
             title={settings.muted ? 'Nyalakan Suara' : 'Bisukan'}
-            className="a11y-focus a11y-card flex items-center gap-1.5 px-3 py-2.5 rounded-xl border backdrop-blur-md text-xs font-semibold shadow-sm cursor-pointer transition-transform active:scale-95 whitespace-nowrap shrink-0"
+            className="a11y-focus a11y-card flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-xs font-semibold shadow-sm cursor-pointer transition-transform active:scale-95 whitespace-nowrap shrink-0"
             style={{
               backgroundColor: 'var(--ui-bg)',
               borderColor: 'var(--ui-border)',
@@ -186,10 +190,10 @@ export function MainMenu({
       {/* Bottom Corner Framing: Keeps Center 3D Gliding Plane 100% Unobstructed */}
       <div className="flex flex-col gap-2 w-full">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-end justify-between gap-3">
-          {/* Bottom-Left: Active Aircraft Briefing Card */}
+          {/* Bottom-Left: Active Aircraft + Map Selector */}
           <section
-            aria-label="Pesawat Aktif"
-            className="a11y-card pointer-events-auto rounded-2xl p-3 sm:p-4 border backdrop-blur-md shadow-xl sm:max-w-xs w-full"
+            aria-label="Pesawat & Map Aktif"
+            className="a11y-card pointer-events-auto rounded-2xl p-3 sm:p-3.5 border shadow-xl sm:max-w-sm w-full space-y-2.5"
             style={{
               backgroundColor: 'var(--ui-bg)',
               borderColor: 'var(--ui-border)',
@@ -199,7 +203,7 @@ export function MainMenu({
             <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="text-[11px] font-semibold" style={{ color: 'var(--ui-text-muted)' }}>
-                  {activePlane.roleLabel} · {settings.randomThemePerSession ? 'Tema Acak' : activeTheme.name}
+                  {activePlane.roleLabel} · Tier {stats.modelTier}/4
                 </div>
                 <h2 className="font-display text-base sm:text-lg font-bold truncate" style={{ color: activePlane.accentHex }}>
                   {activePlane.name}
@@ -220,19 +224,16 @@ export function MainMenu({
               </button>
             </div>
 
-            {/* Clean Telemetry Metrics */}
-            <div className="mt-2.5 pt-2.5 border-t flex items-center justify-between gap-2 text-xs tabular-nums" style={{ borderColor: 'var(--ui-border)' }}>
+            <div className="pt-2 border-t flex flex-wrap items-center justify-between gap-1.5 text-[11px] tabular-nums" style={{ borderColor: 'var(--ui-border)' }}>
               <span className="inline-flex items-center gap-1 font-bold" style={{ color: '#ef4444' }}>
                 <Heart className="w-3.5 h-3.5 fill-current" aria-hidden="true" />
                 <span>{stats.maxLives} Hati</span>
               </span>
 
-              <span style={{ color: 'var(--ui-text-muted)' }}>·</span>
-
               {stats.maxArmorCharges > 0 && (
                 <span className="inline-flex items-center gap-1 font-semibold" style={{ color: '#0d9488' }}>
                   <Shield className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>{stats.maxArmorCharges} Pelindung</span>
+                  <span>{stats.maxArmorCharges} Perisai</span>
                 </span>
               )}
 
@@ -243,24 +244,63 @@ export function MainMenu({
                 </span>
               )}
 
-              {stats.maxArmorCharges === 0 && stats.maxJetCharges === 0 && (
-                <span className="text-[11px]" style={{ color: 'var(--ui-text-muted)' }}>
-                  0 Kemampuan
-                </span>
-              )}
-
-              <span style={{ color: 'var(--ui-text-muted)' }}>·</span>
-
-              <span className="font-semibold" style={{ color: 'var(--ui-text-muted)' }}>
-                Kecepatan {speedPct}%
+              <span className="inline-flex items-center gap-1 font-bold" style={{ color: weaponDisplay.colorCss }}>
+                <Crosshair className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>{weaponDisplay.name}</span>
               </span>
+            </div>
+
+            {/* Quick 5-Map Selector */}
+            <div className="pt-2 border-t" style={{ borderColor: 'var(--ui-border)' }}>
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--ui-text-muted)' }}>
+                <span className="inline-flex items-center gap-1">
+                  <MapIcon className="w-3 h-3" aria-hidden="true" />
+                  Pilih Map 3D
+                </span>
+                <span>{settings.randomThemePerSession ? 'Acak' : activeTheme.name}</span>
+              </div>
+              <div className="grid grid-cols-6 gap-1">
+                {THEME_IDS.map((mid) => {
+                  const t = ENVIRONMENT_THEMES[mid];
+                  const active = !settings.randomThemePerSession && normalizeMapId(settings.selectedTheme) === mid;
+                  return (
+                    <button
+                      key={mid}
+                      type="button"
+                      onClick={() => onSelectMap(mid)}
+                      aria-pressed={active}
+                      className="a11y-focus py-1.5 px-1 rounded-lg text-[10px] font-bold cursor-pointer truncate border transition-colors"
+                      style={{
+                        backgroundColor: active ? t.uiAccentCss : 'var(--ui-surface)',
+                        color: active ? '#ffffff' : 'var(--ui-text)',
+                        borderColor: active ? t.uiAccentCss : 'var(--ui-border)',
+                      }}
+                    >
+                      {t.shortName}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  onClick={() => onSelectMap('random')}
+                  aria-pressed={settings.randomThemePerSession}
+                  className="a11y-focus py-1.5 px-1 rounded-lg text-[10px] font-bold cursor-pointer truncate border transition-colors"
+                  style={{
+                    backgroundColor: settings.randomThemePerSession ? 'var(--ui-accent)' : 'var(--ui-surface)',
+                    color: settings.randomThemePerSession ? '#ffffff' : 'var(--ui-text)',
+                    borderColor: settings.randomThemePerSession ? 'var(--ui-accent)' : 'var(--ui-border)',
+                  }}
+                >
+                  Acak
+                </button>
+              </div>
             </div>
           </section>
 
           {/* Bottom-Right: Dominant Launch CTA + Secondary Navigation */}
           <nav
             aria-label="Navigasi Permainan"
-            className="a11y-card pointer-events-auto rounded-2xl p-3 sm:p-4 border backdrop-blur-md shadow-xl flex flex-col gap-2.5"
+            className="a11y-card pointer-events-auto rounded-2xl p-3 sm:p-4 border shadow-xl flex flex-col gap-2.5"
             style={{
               backgroundColor: 'var(--ui-bg)',
               borderColor: 'var(--ui-border)',
@@ -347,7 +387,7 @@ export function MainMenu({
           className="text-[11px] font-medium text-center py-0.5 drop-shadow-sm"
           style={{ color: 'var(--ui-text)' }}
         >
-          Geser Layar Kiri/Kanan · A / D atau Panah · Spasi Jet Booster
+          WASD / Panah · Spasi Tembak · Shift Booster · Q Perisai · Multitouch Layar Sentuh
         </div>
       </div>
     </main>

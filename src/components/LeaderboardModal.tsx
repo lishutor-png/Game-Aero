@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { X, Trophy, RefreshCw, Smartphone, Keyboard, Hand } from 'lucide-react';
-import { ENVIRONMENT_THEMES } from '../game/themes';
+import { ENVIRONMENT_THEMES, normalizeMapId } from '../game/themes';
 import { apiUrl } from '../config/api';
 import type { LeaderboardEntry } from '../types/game';
 
@@ -133,7 +133,7 @@ export function LeaderboardModal({ onClose }: LeaderboardModalProps) {
             <div className="space-y-2">
               {entries.map((entry, index) => {
                 const rank = index + 1;
-                const theme = ENVIRONMENT_THEMES[entry.themeId] ?? ENVIRONMENT_THEMES.morning;
+                const theme = ENVIRONMENT_THEMES[normalizeMapId(entry.themeId)];
                 return (
                   <div
                     key={entry.id}

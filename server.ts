@@ -103,11 +103,11 @@ async function startServer(): Promise<void> {
       return;
     }
 
-    const allowedThemes = ['morning', 'sunset', 'arctic', 'midnight'];
+    const allowedThemes = ['space', 'city', 'forest', 'desert', 'snow', 'morning', 'sunset', 'arctic', 'midnight'];
     const themeId =
       typeof body.themeId === 'string' && allowedThemes.includes(body.themeId)
         ? body.themeId
-        : 'morning';
+        : 'space';
 
     const allowedControls = ['gyro', 'keyboard', 'touch'];
     const controlUsed =
