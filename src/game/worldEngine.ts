@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { createProceduralPlane, type PlaneRig } from './planeModel';
-import { ENVIRONMENT_THEMES, normalizeMapId, pickRandomTheme } from './themes';
+import { CAMPAIGN_STAGE_ORDER, ENVIRONMENT_THEMES, getStageConfig, normalizeMapId } from './themes';
 import {
   computeEffectivePlaneStats,
   DEFAULT_PROGRESS,
@@ -17,6 +17,7 @@ import { MapEnvironmentManager } from './environmentBuilder';
 import {
   applyObstacleStyleForMap,
   buildThemedObstacleVisuals,
+  createAimSight,
   createEnemyPoolUnit,
   createLockReticle,
   createProjectileMeshPool,
@@ -84,6 +85,8 @@ interface EnemyUnit {
   phase: number;
   shootCooldown: number;
   scoreValue: number;
+  bossStage: number;
+  fireCycle: number;
 }
 
 interface ProjectileUnit {
@@ -259,6 +262,12 @@ export class FlightWorldEngine {
   private enemyBullets: ProjectileUnit[] = [];
   private setPlayerBulletVisual!: (group: THREE.Group, weapon: WeaponType) => void;
   private lockReticle!: { group: THREE.Group; dispose: () => void };
+  private aimSight!: {
+    farGroup: THREE.Group;
+    midPip: THREE.Mesh;
+    setTargetInSight: (inSight: boolean) => void;
+    dispose: () => void;
+  };
   private bulletDisposables: Array<{ dispose: () => void }> = [];
 
   private powerUps: PowerUpUnit[] = [];
@@ -269,7 +278,7 @@ export class FlightWorldEngine {
   // Simulation state
   private runningState: 'menu' | 'playing' | 'paused' | 'gameover' = 'menu';
   private gameMode: GameMode = 'standard';
-  private currentThemeId: ThemeId = 'space';
+  private currentThemeId: ThemeId = 'forest';
   private highContrast = false;
   private reducedMotion = false;
   private graphicsQuality: GraphicsQuality = 'auto';
@@ -286,11 +295,19 @@ export class FlightWorldEngine {
   private forwardSpeed = 24;
   private distance = 0;
   private bonusScore = 0;
-  private enemyKillPoints = 0;
   private combo = 0;
   private maxCombo = 0;
   private powerUpsCollected = 0;
   private enemiesDestroyed = 0;
+  private bossesDefeated = 0;
+  private bossPointsAccum = 0;
+  private currentStageIndex = 0;
+  private stageGatesPassed = 0;
+  private stageEnemiesKilled = 0;
+  private stageItemsCollected = 0;
+  private stageBossSpawned = false;
+  private stageClearBanner = '';
+  private stageClearBannerTimer = 0;
 
   private lives = 2;
   private durability = 45;
@@ -314,7 +331,6 @@ export class FlightWorldEngine {
   private spawnDistanceAccum = 0;
   private obstacleVariantCounter = 0;
   private enemySpawnAccum = 0;
-  private nextBossDistance = 580;
   private powerUpSpawnAccum = 0;
   private powerUpCooldown = 0;
   private practiceStep = 0;
@@ -347,9 +363,9 @@ export class FlightWorldEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
-    this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
     this.renderer.domElement.style.display = 'block';
     this.renderer.domElement.style.width = '100%';
@@ -362,7 +378,7 @@ export class FlightWorldEngine {
       65,
       (container.clientWidth || window.innerWidth) / (container.clientHeight || window.innerHeight),
       0.1,
-      280,
+      260,
     );
     this.camera.position.set(0, 2.8, 7.8);
     this.camera.lookAt(0, 0.4, -14);
@@ -379,14 +395,14 @@ export class FlightWorldEngine {
     this.keyLight = new THREE.DirectionalLight(0xfff3d6, 1.55);
     this.keyLight.position.set(16, 28, 14);
     this.keyLight.castShadow = !this.isSoftwareGl;
-    this.keyLight.shadow.mapSize.set(1024, 1024);
-    const d = 24;
+    this.keyLight.shadow.mapSize.set(512, 512);
+    const d = 14;
     this.keyLight.shadow.camera.left = -d;
     this.keyLight.shadow.camera.right = d;
     this.keyLight.shadow.camera.top = d;
     this.keyLight.shadow.camera.bottom = -d;
     this.keyLight.shadow.camera.near = 2;
-    this.keyLight.shadow.camera.far = 80;
+    this.keyLight.shadow.camera.far = 70;
     this.keyLight.shadow.bias = -0.0005;
     this.keyLight.shadow.normalBias = 0.02;
     this.scene.add(this.keyLight);
@@ -491,7 +507,7 @@ export class FlightWorldEngine {
     this.initPowerUpPool(10);
     this.initParticlePool(56);
 
-    this.applyTheme('space');
+    this.applyTheme('forest');
 
     if (!this.isSoftwareGl) {
       this.renderer.compile(this.scene, this.camera);
@@ -640,7 +656,8 @@ export class FlightWorldEngine {
 
   private initEnemyPool(count: number): void {
     for (let i = 0; i < count; i++) {
-      const visual = createEnemyPoolUnit(this.combatMats);
+      // Slot 0 is reserved exclusively for the stage Boss and builds all 5 evolving Boss models once
+      const visual = createEnemyPoolUnit(this.combatMats, i === 0);
       this.scene.add(visual.root);
       this.enemies.push({
         visual,
@@ -660,6 +677,8 @@ export class FlightWorldEngine {
         phase: 0,
         shootCooldown: 2,
         scoreValue: 8,
+        bossStage: 1,
+        fireCycle: 0,
       });
     }
   }
@@ -709,6 +728,10 @@ export class FlightWorldEngine {
     this.lockReticle = createLockReticle();
     this.scene.add(this.lockReticle.group);
     this.bulletDisposables.push(this.lockReticle);
+
+    this.aimSight = createAimSight();
+    this.scene.add(this.aimSight.farGroup, this.aimSight.midPip);
+    this.bulletDisposables.push(this.aimSight);
   }
 
   private initPowerUpPool(count: number): void {
@@ -993,6 +1016,10 @@ export class FlightWorldEngine {
     this.input.setControlButton(action, pressed);
   }
 
+  public setJoystickInput(steer: number, vertical: number, active: boolean): void {
+    this.input.setJoystick(steer, vertical, active);
+  }
+
   public applyTheme(rawThemeId: string): void {
     const themeId = normalizeMapId(rawThemeId);
     this.currentThemeId = themeId;
@@ -1052,15 +1079,19 @@ export class FlightWorldEngine {
         this.renderer.setPixelRatio(1);
         this.renderer.shadowMap.enabled = false;
         this.keyLight.castShadow = false;
-      } else {
+      } else if (settings.graphicsQuality === 'high') {
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.shadowMap.enabled = true;
+        this.keyLight.castShadow = true;
+      } else {
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         this.renderer.shadowMap.enabled = true;
         this.keyLight.castShadow = true;
       }
     }
 
     if (this.runningState === 'menu') {
-      this.applyTheme(settings.selectedTheme);
+      this.applyTheme('forest');
     } else {
       this.applyTheme(this.currentThemeId);
     }
@@ -1119,6 +1150,7 @@ export class FlightWorldEngine {
   }
 
   public startSession(mode: GameMode, settings: GameSettings, planeStats: EffectivePlaneStats): void {
+    void settings;
     soundEngine.unlock();
     soundEngine.startDynamicMusic('flight');
     this.input.clearAll();
@@ -1129,12 +1161,15 @@ export class FlightWorldEngine {
     this.gameMode = mode;
     this.runningState = 'playing';
 
-    if (settings.randomThemePerSession) {
-      const nextTheme = pickRandomTheme(this.currentThemeId);
-      this.applyTheme(nextTheme);
-    } else {
-      this.applyTheme(settings.selectedTheme);
-    }
+    // Campaign always begins at Stage 1: Emerald Forest and advances upon defeating each Boss
+    this.currentStageIndex = 0;
+    this.stageGatesPassed = 0;
+    this.stageEnemiesKilled = 0;
+    this.stageItemsCollected = 0;
+    this.stageBossSpawned = false;
+    this.stageClearBanner = '';
+    this.stageClearBannerTimer = 0;
+    this.applyTheme(CAMPAIGN_STAGE_ORDER[0]);
 
     this.planeX = 0;
     this.planeY = PLANE_BASE_Y;
@@ -1145,11 +1180,12 @@ export class FlightWorldEngine {
     this.forwardSpeed = (mode === 'practice' ? 20 : 24) * planeStats.speedMultiplier;
     this.distance = 0;
     this.bonusScore = 0;
-    this.enemyKillPoints = 0;
     this.combo = 0;
     this.maxCombo = 0;
     this.powerUpsCollected = 0;
     this.enemiesDestroyed = 0;
+    this.bossesDefeated = 0;
+    this.bossPointsAccum = 0;
     this.lives = planeStats.maxLives;
     this.durability = planeStats.maxDurabilityPerLife;
     this.armorRemaining = planeStats.maxArmorCharges;
@@ -1170,13 +1206,14 @@ export class FlightWorldEngine {
     this.burstStepTimer = 0;
     this.spawnDistanceAccum = 0;
     this.enemySpawnAccum = 0;
-    this.nextBossDistance = 580;
     this.powerUpSpawnAccum = 0;
     this.powerUpCooldown = 1.2;
     this.practiceStep = 0;
     this.practiceTimer = 0;
 
     this.lockReticle.group.visible = false;
+    this.aimSight.farGroup.visible = true;
+    this.aimSight.midPip.visible = true;
     this.plane.shieldMesh.visible = false;
     this.plane.armorMesh.visible = this.armorRemaining > 0;
     this.plane.root.visible = true;
@@ -1207,13 +1244,13 @@ export class FlightWorldEngine {
       this.spawnEnemy('drone', -96, 4.5, 1.2);
       this.spawnPowerUp('bonus', -115, -3.5);
       this.callbacks.onAnnounce(
-        'Mode Latihan dimulai. Gunakan tombol Kiri/Kanan/Naik/Turun dan tombol Tembak!',
+        'Mode Latihan dimulai. Gerakkan Joystick, bidik musuh, lalu tekan Tembak!',
       );
     } else {
       this.spawnObstacle('gate', -75, 0);
       this.spawnEnemy('drone', -112, 3.2, 1.0);
       this.callbacks.onAnnounce(
-        `Penerbangan dimulai dengan ${planeStats.name} di ${ENVIRONMENT_THEMES[this.currentThemeId].name}.`,
+        `Tahap 1/5 dimulai di ${ENVIRONMENT_THEMES.forest.name}. Selesaikan misi untuk memanggil Bos!`,
       );
     }
 
@@ -1253,6 +1290,8 @@ export class FlightWorldEngine {
     this.burstShotsPending = 0;
     this.burstStepTimer = 0;
     this.lockReticle.group.visible = false;
+    this.aimSight.farGroup.visible = false;
+    this.aimSight.midPip.visible = false;
     this.planeY = PLANE_BASE_Y;
     this.plane.shieldMesh.visible = false;
     this.plane.armorMesh.visible = false;
@@ -1378,7 +1417,7 @@ export class FlightWorldEngine {
 
     soundEngine.playShoot(mode);
 
-    if (mode === 'single') {
+    if (mode === 'single' || mode === 'hyper') {
       this.spawnPlayerBolt(mode, 0, -0.05, 0, 0);
     } else if (mode === 'rapid') {
       this.spawnPlayerBolt(mode, -0.58, -0.06, 0, 0);
@@ -1398,7 +1437,7 @@ export class FlightWorldEngine {
       this.spawnPlayerBolt(mode, -1.05, -0.09, -0.2, -0.02);
       this.spawnPlayerBolt(mode, 1.05, -0.09, 0.2, -0.02);
     } else if (mode === 'autolock') {
-      // Aero Prime / Auto Lock: twin guided homing plasma missiles
+      // Auto Lock (Weapon Item / Shop): twin guided homing plasma missiles
       this.spawnPlayerBolt(mode, -0.82, -0.08, -0.05, 0.02, true);
       this.spawnPlayerBolt(mode, 0.82, -0.08, 0.05, 0.02, true);
     } else {
@@ -1409,18 +1448,47 @@ export class FlightWorldEngine {
   }
 
   private spawnEnemy(forcedKind?: EnemyKind, forcedZ?: number, forcedX?: number, forcedY?: number): void {
-    const unit = this.enemies.find((e) => !e.active);
-    if (!unit) return;
-
+    const stageCfg = getStageConfig(this.currentStageIndex);
     const difficulty = this.getDifficultyLevel();
     let kind: EnemyKind = forcedKind ?? 'drone';
+
     if (!forcedKind) {
       const r = Math.random();
-      if (difficulty >= 3 && r < 0.2) kind = 'warship';
-      else if (difficulty >= 2 && r < 0.45) kind = 'interceptor';
-      else if (r < 0.72) kind = 'fighter';
-      else kind = 'drone';
+      if (this.currentStageIndex === 0) {
+        // Stage 1 Forest: mostly easy drones & fighters
+        kind = r < 0.68 ? 'drone' : 'fighter';
+      } else if (this.currentStageIndex === 1) {
+        // Stage 2 Desert: drones, fighters, occasional interceptor
+        if (r < 0.4) kind = 'drone';
+        else if (r < 0.82) kind = 'fighter';
+        else kind = 'interceptor';
+      } else if (this.currentStageIndex === 2) {
+        // Stage 3 City: fighters, interceptors, light warships
+        if (r < 0.25) kind = 'drone';
+        else if (r < 0.62) kind = 'fighter';
+        else if (r < 0.88) kind = 'interceptor';
+        else kind = 'warship';
+      } else {
+        // Stage 4 Snow & Stage 5 Space: intense fleet mix
+        if (r < 0.24) kind = 'warship';
+        else if (r < 0.56) kind = 'interceptor';
+        else if (r < 0.85) kind = 'fighter';
+        else kind = 'drone';
+      }
     }
+
+    let unit: EnemyUnit | undefined;
+    if (kind === 'boss') {
+      unit = this.enemies[0];
+    } else {
+      for (let i = 1; i < this.enemies.length; i++) {
+        if (!this.enemies[i].active) {
+          unit = this.enemies[i];
+          break;
+        }
+      }
+    }
+    if (!unit) return;
 
     unit.active = true;
     unit.kind = kind;
@@ -1431,75 +1499,88 @@ export class FlightWorldEngine {
     unit.y = unit.baseY;
     unit.phase = Math.random() * Math.PI * 2;
     unit.hitFlash = 0;
+    unit.fireCycle = 0;
+    unit.bossStage = stageCfg.stage;
 
-    // Show matching composite model
-    (['drone', 'fighter', 'interceptor', 'warship', 'boss'] as EnemyKind[]).forEach((k) => {
-      unit.visual.modelByKind[k].visible = k === kind;
-    });
+    unit.visual.modelByKind.drone.visible = kind === 'drone';
+    unit.visual.modelByKind.fighter.visible = kind === 'fighter';
+    unit.visual.modelByKind.interceptor.visible = kind === 'interceptor';
+    unit.visual.modelByKind.warship.visible = kind === 'warship';
+    unit.visual.modelByKind.boss.visible = kind === 'boss';
 
-    const scaleBoost = 1 + Math.min(0.45, (difficulty - 1) * 0.08);
+    const stageScale = 1 + this.currentStageIndex * 0.24;
     if (kind === 'boss') {
-      unit.maxHp = Math.round(320 + difficulty * 65);
-      unit.halfWidth = 4.3;
-      unit.halfHeight = 1.65;
-      unit.speedZ = 1.5;
-      unit.shootCooldown = 1.6;
-      unit.scoreValue = 50;
-      unit.baseY = 2.1;
-      unit.y = 2.1;
+      unit.visual.setBossStage(Math.min(5, stageCfg.stage));
+      unit.maxHp = stageCfg.bossHp;
+      unit.halfWidth = stageCfg.stage <= 2 ? 3.2 : stageCfg.stage === 3 ? 3.7 : 4.3;
+      unit.halfHeight = stageCfg.stage <= 2 ? 1.35 : 1.65;
+      unit.speedZ = 1.6;
+      unit.shootCooldown = stageCfg.bossCooldownSec;
+      unit.scoreValue = stageCfg.bossScore;
+      unit.baseY = 2.0;
+      unit.y = 2.0;
     } else if (kind === 'warship') {
-      unit.maxHp = Math.round(95 * scaleBoost);
+      unit.maxHp = Math.round(78 * stageScale);
       unit.halfWidth = 2.05;
       unit.halfHeight = 1.05;
-      unit.speedZ = 4.5;
-      unit.shootCooldown = 1.9;
-      unit.scoreValue = 18;
+      unit.speedZ = 4.5 + this.currentStageIndex * 0.6;
+      unit.shootCooldown = Math.max(1.3, 2.2 - this.currentStageIndex * 0.15);
+      unit.scoreValue = 35;
     } else if (kind === 'interceptor') {
-      unit.maxHp = Math.round(34 * scaleBoost);
+      unit.maxHp = Math.round(30 * stageScale);
       unit.halfWidth = 1.45;
       unit.halfHeight = 0.75;
-      unit.speedZ = 15.0;
-      unit.shootCooldown = 2.2;
-      unit.scoreValue = 10;
+      unit.speedZ = 14.0 + this.currentStageIndex * 1.1;
+      unit.shootCooldown = Math.max(1.4, 2.3 - this.currentStageIndex * 0.15);
+      unit.scoreValue = 20;
     } else if (kind === 'fighter') {
-      unit.maxHp = Math.round(44 * scaleBoost);
+      unit.maxHp = Math.round(32 * stageScale);
       unit.halfWidth = 1.65;
       unit.halfHeight = 0.85;
-      unit.speedZ = 11.0;
-      unit.shootCooldown = 1.75;
-      unit.scoreValue = 9;
+      unit.speedZ = 10.5 + this.currentStageIndex * 0.8;
+      unit.shootCooldown = Math.max(1.5, 2.4 - this.currentStageIndex * 0.15);
+      unit.scoreValue = 14;
     } else {
-      unit.maxHp = Math.round(22 * scaleBoost);
+      unit.maxHp = Math.round(18 * (1 + this.currentStageIndex * 0.18));
       unit.halfWidth = 1.05;
       unit.halfHeight = 0.9;
-      unit.speedZ = 8.0;
-      unit.shootCooldown = 2.6;
-      unit.scoreValue = 5;
+      unit.speedZ = 7.8 + this.currentStageIndex * 0.6;
+      unit.shootCooldown = Math.max(2.1, 3.0 - this.currentStageIndex * 0.12);
+      unit.scoreValue = 8;
     }
+    void difficulty;
 
     unit.hp = unit.maxHp;
     unit.visual.root.position.set(unit.x, unit.y, unit.z);
     unit.visual.root.visible = true;
   }
 
-  private spawnEnemyBolt(ex: number, ey: number, ez: number, aimAtPlayer: boolean, spreadX = 0): void {
+  private spawnEnemyBolt(
+    ex: number,
+    ey: number,
+    ez: number,
+    aimAtPlayer: boolean,
+    spreadX = 0,
+    spreadY = 0,
+    speedBoost = 0,
+  ): void {
     const eb = this.enemyBullets.find((b) => !b.active);
     if (!eb) return;
     eb.active = true;
-    eb.x = ex + spreadX;
-    eb.y = ey;
+    eb.x = ex + spreadX * 0.55;
+    eb.y = ey + spreadY * 0.25;
     eb.z = ez + 1.8;
 
     const dz = Math.max(12, Math.abs(eb.z));
-    const speedZ = 42 + this.forwardSpeed * 0.45;
+    const speedZ = 40 + this.forwardSpeed * 0.42 + speedBoost;
     const travelTime = dz / speedZ;
 
     if (aimAtPlayer) {
-      eb.vx = THREE.MathUtils.clamp((this.planeX - eb.x) / travelTime, -14, 14);
-      eb.vy = THREE.MathUtils.clamp((this.planeY - eb.y) / travelTime, -8, 8);
+      eb.vx = THREE.MathUtils.clamp((this.planeX - eb.x) / travelTime + spreadX * 1.6, -18, 18);
+      eb.vy = THREE.MathUtils.clamp((this.planeY - eb.y) / travelTime + spreadY * 1.3, -10, 10);
     } else {
-      eb.vx = spreadX * 1.4;
-      eb.vy = 0;
+      eb.vx = spreadX * 2.1;
+      eb.vy = spreadY * 1.4;
     }
     eb.vz = speedZ;
     eb.mesh.position.set(eb.x, eb.y, eb.z);
@@ -1511,17 +1592,20 @@ export class FlightWorldEngine {
     if (!unit) return;
 
     const difficulty = this.getDifficultyLevel();
+    const stageCfg = getStageConfig(this.currentStageIndex);
     let kind: ObstacleKind = forcedKind ?? 'pillar';
 
     if (!forcedKind) {
       const r = Math.random();
       if (this.gameMode === 'practice') {
         kind = r < 0.6 ? 'gate' : 'pillar';
-      } else if (difficulty >= 4 && r < 0.18) {
+      } else if (this.stageGatesPassed < stageCfg.missionGatesTarget && r < 0.36) {
+        kind = 'gate';
+      } else if (difficulty >= 4 && r < 0.52) {
         kind = 'turbine';
-      } else if (difficulty >= 2 && r < 0.36) {
+      } else if (difficulty >= 2 && r < 0.68) {
         kind = 'mover';
-      } else if (r < 0.72) {
+      } else if (r < 0.86) {
         kind = 'pillar';
       } else {
         kind = 'gate';
@@ -1534,7 +1618,7 @@ export class FlightWorldEngine {
     unit.active = true;
     unit.kind = kind;
     unit.destructible = kind !== 'gate';
-    unit.maxHp = kind === 'turbine' ? 65 : kind === 'mover' ? 45 : 35;
+    unit.maxHp = kind === 'turbine' ? 60 : kind === 'mover' ? 42 : 30;
     unit.hp = unit.maxHp;
     unit.hitFlash = 0;
     unit.z = forcedZ ?? SPAWN_Z;
@@ -1552,7 +1636,7 @@ export class FlightWorldEngine {
     unit.visual.topArch.visible = kind === 'gate';
 
     if (kind === 'gate') {
-      const gapHalf = Math.max(3.2, 4.7 - difficulty * 0.12);
+      const gapHalf = Math.max(3.2, 4.7 - difficulty * 0.11);
       unit.gateGapHalf = gapHalf;
       unit.halfWidth = gapHalf + 1.2;
       unit.halfHeight = 5.8;
@@ -1626,26 +1710,26 @@ export class FlightWorldEngine {
 
   private getDifficultyLevel(): number {
     if (this.gameMode === 'practice') return 1;
-    return 1 + Math.floor(this.distance / 650);
+    return 1 + this.currentStageIndex + Math.floor(this.distance / 1200);
   }
 
   private getPracticeGuidance(): { step: number; message: string } {
     if (this.practiceStep === 0) {
       return {
         step: 0,
-        message: 'Langkah 1/3: Gunakan tombol Kiri/Kanan/Naik/Turun (atau WASD/Panah) untuk manuver!',
+        message: 'Langkah 1/3: Gerakkan Joystick di kiri layar (atau WASD/Panah) untuk manuver!',
       };
     }
     if (this.practiceStep === 1) {
       return {
         step: 1,
-        message: 'Langkah 2/3: Tekan tombol TEMBAK (atau Spasi) untuk menghancurkan drone & rintangan!',
+        message: 'Langkah 2/3: Arahkan titik bidik ke musuh lalu tekan TEMBAK (atau Spasi)!',
       };
     }
     if (this.practiceStep === 2) {
       return {
         step: 2,
-        message: 'Langkah 3/3: Lewati Gerbang (+2) & ambil item Bintang (+5), Perisai, Booster, atau Hati!',
+        message: 'Langkah 3/3: Lewati Gerbang (+10) & ambil Bintang (+25), Perisai, Booster, atau Hati!',
       };
     }
     return {
@@ -1728,8 +1812,11 @@ export class FlightWorldEngine {
 
       this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, this.planeX * 0.35 + Math.sin(elapsed * 0.25) * 1.2, 3, dt);
       this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, 2.7, 3, dt);
-      this.camera.fov = THREE.MathUtils.damp(this.camera.fov, 60, 4, dt);
-      this.camera.updateProjectionMatrix();
+      const nextMenuFov = THREE.MathUtils.damp(this.camera.fov, 60, 4, dt);
+      if (Math.abs(nextMenuFov - this.camera.fov) > 0.015) {
+        this.camera.fov = nextMenuFov;
+        this.camera.updateProjectionMatrix();
+      }
       this.camera.lookAt(this.planeX * 0.4, 0.3, -14);
 
       this.scrollScenery(menuSpeed, dt);
@@ -1769,6 +1856,12 @@ export class FlightWorldEngine {
     if (this.invulnTimer > 0) this.invulnTimer = Math.max(0, this.invulnTimer - dt);
     if (this.powerUpCooldown > 0) this.powerUpCooldown = Math.max(0, this.powerUpCooldown - dt);
     if (this.fireCooldown > 0) this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    if (this.stageClearBannerTimer > 0) {
+      this.stageClearBannerTimer = Math.max(0, this.stageClearBannerTimer - dt);
+      if (this.stageClearBannerTimer === 0) {
+        this.stageClearBanner = '';
+      }
+    }
 
     if (this.shieldActiveRemaining > 0) {
       this.shieldActiveRemaining = Math.max(0, this.shieldActiveRemaining - dt);
@@ -1916,16 +2009,31 @@ export class FlightWorldEngine {
       }
     }
 
-    // Spawning Enemies + Boss Waves
-    const hasBossActive = this.enemies.some((e) => e.active && e.kind === 'boss');
-    if (this.gameMode === 'standard' && !hasBossActive && this.distance >= this.nextBossDistance) {
-      this.nextBossDistance += 720;
-      this.spawnEnemy('boss', -115, 0, 2.1);
-      this.callbacks.onAnnounce('Peringatan! Kapal Boss Besar terdeteksi di depan!');
+    // Mission-Driven Boss Spawn (summoned when all 3 stage mission objectives complete!)
+    let hasBossActive = false;
+    for (let i = 0; i < this.enemies.length; i++) {
+      if (this.enemies[i].active && this.enemies[i].kind === 'boss') {
+        hasBossActive = true;
+        break;
+      }
+    }
+    if (this.gameMode === 'standard' && !hasBossActive && !this.stageBossSpawned) {
+      const stageCfg = getStageConfig(this.currentStageIndex);
+      if (
+        this.stageGatesPassed >= stageCfg.missionGatesTarget &&
+        this.stageEnemiesKilled >= stageCfg.missionKillsTarget &&
+        this.stageItemsCollected >= stageCfg.missionItemsTarget
+      ) {
+        this.stageBossSpawned = true;
+        this.spawnEnemy('boss', -112, 0, 2.0);
+        this.callbacks.onAnnounce(
+          `Misi Tahap ${stageCfg.stage} selesai! ${stageCfg.bossName} muncul di depan!`,
+        );
+      }
     }
 
     this.enemySpawnAccum += dz;
-    const enemyInterval = this.gameMode === 'practice' ? 58 : Math.max(28, 46 - difficulty * 1.6);
+    const enemyInterval = this.gameMode === 'practice' ? 56 : Math.max(24, 40 - this.currentStageIndex * 2.5);
     if (!hasBossActive && this.enemySpawnAccum >= enemyInterval) {
       this.enemySpawnAccum = 0;
       this.spawnEnemy();
@@ -1937,6 +2045,9 @@ export class FlightWorldEngine {
       this.powerUpSpawnAccum = 0;
       this.spawnPowerUp();
     }
+
+    // 3D Forward Aiming Sight (60fps exact projectile trajectory + target-in-line indicator)
+    this.updateAimSight(dt);
 
     // Auto-Lock 3D Reticle Indicator
     const activeWeaponMode = this.getEffectiveWeaponMode();
@@ -2030,8 +2141,7 @@ export class FlightWorldEngine {
             if (ob.hp <= 0) {
               ob.active = false;
               ob.visual.root.visible = false;
-              this.bonusScore += 3;
-              this.enemyKillPoints += 5;
+              this.bonusScore += 4;
               soundEngine.playExplosion(false);
               this.emitParticles(ob.x, b.y, ob.z, 0xf97316, 16, 1.2);
             } else {
@@ -2053,10 +2163,13 @@ export class FlightWorldEngine {
       if (!en.active) continue;
 
       if (en.kind === 'boss') {
-        // Boss hovers around z = -42 and weaves left/right + up/down
+        // Evolving Boss maneuver intensity per stage (1 = gentle -> 5 = aggressive)
+        const s = en.bossStage;
         if (en.z < -42) en.z += (dz + en.speedZ * dt) * 0.55;
-        en.x = Math.sin(elapsed * 0.9 + en.phase) * 9.2;
-        en.y = 2.0 + Math.cos(elapsed * 1.3 + en.phase) * 1.4;
+        const swayAmp = s === 1 ? 6.2 : s === 2 ? 7.6 : s === 3 ? 8.8 : 9.6;
+        const swayFreq = 0.72 + s * 0.14;
+        en.x = Math.sin(elapsed * swayFreq + en.phase) * swayAmp;
+        en.y = 1.9 + Math.cos(elapsed * (0.9 + s * 0.16) + en.phase) * (s >= 3 ? 1.45 : 0.75);
       } else if (en.kind === 'interceptor') {
         en.z += dz * 0.55 + en.speedZ * dt;
         en.x = THREE.MathUtils.damp(en.x, this.planeX, 2.4, dt);
@@ -2086,20 +2199,72 @@ export class FlightWorldEngine {
         en.visual.root.scale.setScalar(1.0);
       }
 
-      // Enemy Firing AI
+      // Enemy & Evolving Stage Boss Firing AI
       en.shootCooldown -= dt;
       if (en.shootCooldown <= 0 && en.z > -105 && en.z < -16) {
         if (en.kind === 'boss') {
-          en.shootCooldown = 1.45;
-          this.spawnEnemyBolt(en.x, en.y, en.z, true, -2.5);
-          this.spawnEnemyBolt(en.x, en.y, en.z, true, 0);
-          this.spawnEnemyBolt(en.x, en.y, en.z, true, 2.5);
+          const bossCfg = getStageConfig(Math.max(0, en.bossStage - 1));
+          en.shootCooldown = bossCfg.bossCooldownSec;
+          en.fireCycle += 1;
+          const bStage = en.bossStage;
+
+          if (bStage === 1) {
+            // Bos 1 (Hutan): 1 tembakan tunggal mengarah ke pemain
+            this.spawnEnemyBolt(en.x, en.y, en.z, true, 0, 0, -4);
+          } else if (bStage === 2) {
+            // Bos 2 (Gurun): 2 tembakan kembar
+            const aim = en.fireCycle % 2 === 0;
+            this.spawnEnemyBolt(en.x, en.y, en.z, aim, -1.6, 0, 0);
+            this.spawnEnemyBolt(en.x, en.y, en.z, aim, 1.6, 0, 0);
+          } else if (bStage === 3) {
+            // Bos 3 (Kota): 3 tembakan variasi kipas & burst terarah
+            if (en.fireCycle % 2 === 0) {
+              this.spawnEnemyBolt(en.x, en.y, en.z, false, -2.5, 0, 4);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 0, 0, 4);
+              this.spawnEnemyBolt(en.x, en.y, en.z, false, 2.5, 0, 4);
+            } else {
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, -1.4, -0.4, 6);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 0, 0.5, 6);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 1.4, -0.4, 6);
+            }
+          } else if (bStage === 4) {
+            // Bos 4 (Salju): 4 tembakan variasi sebar & beruntun cepat
+            if (en.fireCycle % 2 === 0) {
+              this.spawnEnemyBolt(en.x, en.y, en.z, false, -3.2, -0.3, 6);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, -1.1, 0.3, 6);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 1.1, 0.3, 6);
+              this.spawnEnemyBolt(en.x, en.y, en.z, false, 3.2, -0.3, 6);
+            } else {
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, -2.2, 0.6, 8);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, -0.7, -0.6, 8);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 0.7, -0.6, 8);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 2.2, 0.6, 8);
+            }
+          } else {
+            // Bos 5+ (Luar Angkasa - Final): 5 tembakan variasi radial, silang, & sapuan
+            const pattern = en.fireCycle % 3;
+            if (pattern === 0) {
+              for (const sx of [-3.6, -1.8, 0, 1.8, 3.6]) {
+                this.spawnEnemyBolt(en.x, en.y, en.z, sx === 0, sx, 0, 10);
+              }
+            } else if (pattern === 1) {
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, -3.0, 1.2, 11);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, -1.5, -1.0, 11);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 0, 0, 13);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 1.5, -1.0, 11);
+              this.spawnEnemyBolt(en.x, en.y, en.z, true, 3.0, 1.2, 11);
+            } else {
+              for (const sx of [-2.8, -1.4, 0, 1.4, 2.8]) {
+                this.spawnEnemyBolt(en.x, en.y, en.z, true, sx, sx === 0 ? 0.8 : -0.4, 12);
+              }
+            }
+          }
         } else if (en.kind === 'warship') {
-          en.shootCooldown = 2.0;
+          en.shootCooldown = Math.max(1.4, 2.2 - this.currentStageIndex * 0.14);
           this.spawnEnemyBolt(en.x, en.y, en.z, true, -1.1);
           this.spawnEnemyBolt(en.x, en.y, en.z, true, 1.1);
         } else if (en.kind === 'fighter' || en.kind === 'interceptor') {
-          en.shootCooldown = 2.2;
+          en.shootCooldown = Math.max(1.6, 2.4 - this.currentStageIndex * 0.14);
           this.spawnEnemyBolt(en.x, en.y, en.z, true, 0);
         } else {
           en.shootCooldown = 3.2;
@@ -2171,14 +2336,17 @@ export class FlightWorldEngine {
 
       ob.visual.root.position.set(ob.x, GROUND_Y, ob.z);
 
-      // Gate pass bonus check (+2 per gate)
+      // Gate pass bonus check (+6 per gate) + Mission progress
       if (ob.kind === 'gate' && !ob.gateScored && ob.z > 0.3) {
         const dx = Math.abs(this.planeX - ob.x);
         if (dx < ob.gateGapHalf - 0.35 && this.planeY < GROUND_Y + 5.8) {
           ob.gateScored = true;
           this.combo += 1;
           if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-          this.bonusScore += 2;
+          this.bonusScore += 6;
+          if (this.gameMode === 'standard' && !this.stageBossSpawned) {
+            this.stageGatesPassed += 1;
+          }
           soundEngine.playGatePass(this.combo);
           this.emitParticles(this.planeX, this.planeY + 0.3, -0.5, 0x38bdf8, 10);
           if (this.gameMode === 'practice' && this.practiceStep === 2) {
@@ -2248,9 +2416,12 @@ export class FlightWorldEngine {
     this.scrollScenery(this.forwardSpeed, dt);
 
     // Smooth Chase Camera Follow (horizontal & vertical)
-    const targetFov = boostFlame ? 77 : 65 + Math.min(5, (difficulty - 1) * 0.9);
-    this.camera.fov = THREE.MathUtils.damp(this.camera.fov, targetFov, 5.5, dt);
-    this.camera.updateProjectionMatrix();
+    const targetFov = boostFlame ? 76 : 65 + Math.min(5, (difficulty - 1) * 0.9);
+    const nextFov = THREE.MathUtils.damp(this.camera.fov, targetFov, 5.5, dt);
+    if (Math.abs(nextFov - this.camera.fov) > 0.015) {
+      this.camera.fov = nextFov;
+      this.camera.updateProjectionMatrix();
+    }
 
     this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, this.planeX * 0.56, 7, dt);
     this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, this.planeY * 0.65 + 2.55, 6.5, dt);
@@ -2260,12 +2431,77 @@ export class FlightWorldEngine {
     this.applyCameraShake();
     this.camera.lookAt(this.planeX * 0.72, this.planeY * 0.65 + 0.15, -14);
 
-    // Throttled HUD updates (~20Hz)
+    // Throttled HUD updates (~12.5Hz) to avoid React re-render overhead over WebGL
     this.hudThrottle += dt;
-    if (this.hudThrottle >= 0.05) {
+    if (this.hudThrottle >= 0.08) {
       this.hudThrottle = 0;
       this.emitHudSnapshot(steer, vertical, source);
     }
+  }
+
+  private updateAimSight(dt: number): void {
+    const pitchSlopeY = Math.sin(this.planePitch) * 0.55;
+    const yawSlopeX = -Math.sin(this.plane.bodyGroup.rotation.y) * 0.45;
+    const originX = this.planeX;
+    const originY = this.planeY - 0.05;
+    const originZ = -2.2;
+
+    // Mid-range trajectory pip
+    const midDist = 20;
+    this.aimSight.midPip.visible = true;
+    this.aimSight.midPip.position.set(
+      originX + yawSlopeX * midDist,
+      originY + pitchSlopeY * midDist,
+      originZ - midDist,
+    );
+
+    // Check nearest enemy or destructible obstacle intersecting the forward firing line
+    let hitDist = 44;
+    let targetInSight = false;
+
+    for (let i = 0; i < this.enemies.length; i++) {
+      const en = this.enemies[i];
+      if (!en.active || en.z >= originZ - 2 || en.z < -125) continue;
+      const dist = originZ - en.z;
+      const rayX = originX + yawSlopeX * dist;
+      const rayY = originY + pitchSlopeY * dist;
+      if (
+        Math.abs(rayX - en.x) <= en.halfWidth + 0.95 &&
+        Math.abs(rayY - en.y) <= en.halfHeight + 0.95 &&
+        dist < hitDist
+      ) {
+        hitDist = dist;
+        targetInSight = true;
+      }
+    }
+
+    if (!targetInSight) {
+      for (let i = 0; i < this.obstacles.length; i++) {
+        const ob = this.obstacles[i];
+        if (!ob.active || !ob.destructible || ob.z >= originZ - 2 || ob.z < -115) continue;
+        const dist = originZ - ob.z;
+        const rayX = originX + yawSlopeX * dist;
+        const rayY = originY + pitchSlopeY * dist;
+        const obCenterY = GROUND_Y + ob.halfHeight * 0.52;
+        if (
+          Math.abs(rayX - ob.x) <= ob.halfWidth + 0.85 &&
+          Math.abs(rayY - obCenterY) <= ob.halfHeight * 0.55 + 0.85 &&
+          dist < hitDist
+        ) {
+          hitDist = dist;
+          targetInSight = true;
+        }
+      }
+    }
+
+    this.aimSight.setTargetInSight(targetInSight);
+    this.aimSight.farGroup.visible = true;
+    this.aimSight.farGroup.position.set(
+      originX + yawSlopeX * hitDist,
+      originY + pitchSlopeY * hitDist,
+      originZ - hitDist,
+    );
+    this.aimSight.farGroup.rotation.z += dt * (targetInSight ? 2.8 : 0.7);
   }
 
   private destroyEnemy(en: EnemyUnit): void {
@@ -2277,24 +2513,47 @@ export class FlightWorldEngine {
     if (this.combo > this.maxCombo) this.maxCombo = this.combo;
     this.bonusScore += en.scoreValue;
 
-    const killPoints =
-      en.kind === 'boss'
-        ? 120
-        : en.kind === 'warship'
-          ? 35
-          : en.kind === 'interceptor'
-            ? 22
-            : en.kind === 'fighter'
-              ? 18
-              : 10;
-    this.enemyKillPoints += killPoints;
-
     soundEngine.playExplosion(isBoss);
     this.shakeIntensity = Math.max(this.shakeIntensity, isBoss ? 0.65 : 0.25);
-    this.emitParticles(en.x, en.y, en.z, isBoss ? 0xf97316 : 0xef4444, isBoss ? 36 : 18, isBoss ? 1.8 : 1.15);
+    this.emitParticles(en.x, en.y, en.z, isBoss ? 0xf97316 : 0xef4444, isBoss ? 38 : 18, isBoss ? 1.9 : 1.15);
+
+    if (!isBoss && this.gameMode === 'standard' && !this.stageBossSpawned) {
+      this.stageEnemiesKilled += 1;
+    }
 
     if (isBoss) {
-      this.callbacks.onAnnounce(`Boss dihancurkan! +${en.scoreValue} Skor & +${killPoints} Poin!`);
+      const defeatedCfg = getStageConfig(this.currentStageIndex);
+      this.bossesDefeated += 1;
+      this.bossPointsAccum += defeatedCfg.bossPoints;
+
+      // Clear active enemy projectiles & restore a bit of hull durability upon Boss victory
+      for (const eb of this.enemyBullets) {
+        eb.active = false;
+        eb.mesh.visible = false;
+      }
+      this.durability = Math.min(this.planeStats.maxDurabilityPerLife, this.durability + 20);
+
+      // Advance to next campaign map/stage!
+      this.currentStageIndex += 1;
+      this.stageGatesPassed = 0;
+      this.stageEnemiesKilled = 0;
+      this.stageItemsCollected = 0;
+      this.stageBossSpawned = false;
+
+      const nextCfg = getStageConfig(this.currentStageIndex);
+      const nextTheme = ENVIRONMENT_THEMES[nextCfg.mapId];
+      if (nextCfg.mapId !== this.currentThemeId) {
+        this.applyTheme(nextCfg.mapId);
+      }
+
+      if (this.currentStageIndex < CAMPAIGN_STAGE_ORDER.length) {
+        this.stageClearBanner = `Bos Kalah (+${defeatedCfg.bossPoints} Poin)! Memasuki Zona ${nextCfg.stage}/5: ${nextTheme.name}`;
+      } else {
+        this.stageClearBanner = `Bos Luar Angkasa Kalah (+${defeatedCfg.bossPoints} Poin)! Mode Overdrive Lv.${nextCfg.stage - 4} Aktif!`;
+      }
+      this.stageClearBannerTimer = 4.4;
+      this.callbacks.onAnnounce(this.stageClearBanner);
+      this.emitCurrentHud();
     }
   }
 
@@ -2322,6 +2581,9 @@ export class FlightWorldEngine {
     pu.active = false;
     pu.group.visible = false;
     this.powerUpsCollected += 1;
+    if (this.gameMode === 'standard' && !this.stageBossSpawned) {
+      this.stageItemsCollected += 1;
+    }
     soundEngine.playPowerUp(pu.kind);
 
     if (pu.kind === 'turbo') {
@@ -2340,8 +2602,8 @@ export class FlightWorldEngine {
         this.callbacks.onAnnounce(`Item Hati! Nyawa bertambah menjadi ${this.lives}.`);
       } else {
         this.durability = this.planeStats.maxDurabilityPerLife;
-        this.bonusScore += 2;
-        this.callbacks.onAnnounce('Item Hati! Ketahanan pulih penuh & bonus +2 skor.');
+        this.bonusScore += 10;
+        this.callbacks.onAnnounce('Item Hati! Ketahanan pulih penuh & bonus +10 skor.');
       }
       this.emitParticles(this.planeX, this.planeY, 0, 0xef4444, 16);
     } else if (pu.kind === 'weapon') {
@@ -2357,9 +2619,9 @@ export class FlightWorldEngine {
     } else {
       this.combo += 1;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-      this.bonusScore += 5;
+      this.bonusScore += 15;
       this.emitParticles(this.planeX, this.planeY, 0, 0xfacc15, 14);
-      this.callbacks.onAnnounce('Item Skor! +5 Skor.');
+      this.callbacks.onAnnounce('Item Skor! +15 Skor.');
     }
 
     if (this.gameMode === 'practice' && this.practiceStep === 2) {
@@ -2466,6 +2728,9 @@ export class FlightWorldEngine {
     this.hitstopTimer = 0.07;
     this.shakeIntensity = 0.75;
     this.plane.root.visible = false;
+    this.aimSight.farGroup.visible = false;
+    this.aimSight.midPip.visible = false;
+    this.lockReticle.group.visible = false;
     soundEngine.stopWind();
     soundEngine.playCrash();
     this.emitParticles(this.planeX, this.planeY, 0, 0xf87171, 30, 1.4);
@@ -2481,6 +2746,8 @@ export class FlightWorldEngine {
       maxCombo: this.maxCombo,
       powerUpsCollected: this.powerUpsCollected,
       enemiesDestroyed: this.enemiesDestroyed,
+      bossesDefeated: this.bossesDefeated,
+      stageReached: this.currentStageIndex + 1,
       pointsEarned: earnedPoints,
       planeId: this.planeStats.planeId,
       modelTier: this.planeStats.modelTier,
@@ -2497,11 +2764,14 @@ export class FlightWorldEngine {
   }
 
   private computeTotalScore(): number {
-    return this.bonusScore;
+    return Math.floor(this.distance / 10) + this.bonusScore;
   }
 
   private computeEarnedPoints(): number {
-    return this.gameMode === 'standard' ? this.bonusScore + this.enemyKillPoints : 0;
+    if (this.gameMode !== 'standard') return 0;
+    const total = this.computeTotalScore();
+    const basePoints = total >= 7 ? Math.floor(total * 0.15) : 0;
+    return basePoints + this.bossPointsAccum;
   }
 
   private emitCurrentHud(): void {
@@ -2511,7 +2781,15 @@ export class FlightWorldEngine {
 
   private emitHudSnapshot(steer: number, vertical: number, source: 'keyboard' | 'touch'): void {
     const guidance = this.getPracticeGuidance();
-    const activeBoss = this.enemies.find((e) => e.active && e.kind === 'boss');
+    const stageCfg = getStageConfig(this.currentStageIndex);
+    const theme = ENVIRONMENT_THEMES[stageCfg.mapId];
+    let activeBoss: EnemyUnit | undefined;
+    for (let i = 0; i < this.enemies.length; i++) {
+      if (this.enemies[i].active && this.enemies[i].kind === 'boss') {
+        activeBoss = this.enemies[i];
+        break;
+      }
+    }
     const overrideActive = this.weaponOverride && this.weaponOverrideRemaining > 0;
     const weaponDisplay = overrideActive
       ? {
@@ -2554,8 +2832,21 @@ export class FlightWorldEngine {
       verticalInput: vertical,
       activeControl: source,
       enemiesDestroyed: this.enemiesDestroyed,
+      bossesDefeated: this.bossesDefeated,
+      stageNumber: stageCfg.stage,
+      stageLabel:
+        stageCfg.stage <= 5
+          ? `Zona ${stageCfg.stage}/5 · ${theme.shortName}`
+          : `Overdrive ${stageCfg.stage} · ${theme.shortName}`,
+      missionGates: Math.min(this.stageGatesPassed, stageCfg.missionGatesTarget),
+      missionGatesTarget: stageCfg.missionGatesTarget,
+      missionKills: Math.min(this.stageEnemiesKilled, stageCfg.missionKillsTarget),
+      missionKillsTarget: stageCfg.missionKillsTarget,
+      missionItems: Math.min(this.stageItemsCollected, stageCfg.missionItemsTarget),
+      missionItemsTarget: stageCfg.missionItemsTarget,
+      stageClearBanner: this.stageClearBanner,
       bossActive: Boolean(activeBoss),
-      bossName: 'Dreadnought Sky Fortress',
+      bossName: stageCfg.bossName,
       bossHp: activeBoss ? Math.max(0, activeBoss.hp) : 0,
       bossMaxHp: activeBoss ? activeBoss.maxHp : 1,
       practiceStep: guidance.step,

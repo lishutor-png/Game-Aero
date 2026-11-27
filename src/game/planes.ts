@@ -100,7 +100,7 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     boltCount: 3,
     colorHex: 0x10b981,
     colorCss: '#059669',
-    description: 'Aegis Titan: Menyebar (Spread) · Vortex Jet: Burst Fire 3x · Aero Prime: Auto Lock pelacak.',
+    description: 'Aegis Titan: Menyebar 5 Peluru · Vortex Jet: Burst Fire 3x · Aero Prime: Tembakan Tunggal Cepat & Kuat.',
   },
   single: {
     id: 'single',
@@ -114,6 +114,19 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     colorHex: 0x0ea5e9,
     colorCss: '#0284c7',
     description: 'Tembakan plasma tunggal cepat dan akurat dari moncong pesawat.',
+  },
+  hyper: {
+    id: 'hyper',
+    name: 'Khas Aero: Plasma Cepat Kuat',
+    shortName: 'Aero Rail',
+    cost: 0,
+    fireIntervalSec: 0.13,
+    damagePerBolt: 38,
+    projectileSpeed: 245,
+    boltCount: 1,
+    colorHex: 0x38bdf8,
+    colorCss: '#0284c7',
+    description: 'Tembakan tunggal super cepat & berdaya hancur tinggi khusus Aero Prime.',
   },
   rapid: {
     id: 'rapid',
@@ -145,7 +158,7 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     id: 'triple',
     name: 'Triple Shot',
     shortName: 'Triple',
-    cost: 340,
+    cost: 300,
     fireIntervalSec: 0.22,
     damagePerBolt: 16,
     projectileSpeed: 200,
@@ -158,7 +171,7 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     id: 'burst',
     name: 'Burst Fire (3-Ronde)',
     shortName: 'Burst',
-    cost: 460,
+    cost: 400,
     fireIntervalSec: 0.34,
     damagePerBolt: 16,
     projectileSpeed: 220,
@@ -171,7 +184,7 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     id: 'spread',
     name: 'Tembakan Menyebar',
     shortName: 'Spread',
-    cost: 580,
+    cost: 500,
     fireIntervalSec: 0.28,
     damagePerBolt: 16,
     projectileSpeed: 185,
@@ -184,7 +197,7 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     id: 'autolock',
     name: 'Auto Lock Pelacak',
     shortName: 'AutoLock',
-    cost: 760,
+    cost: 650,
     fireIntervalSec: 0.24,
     damagePerBolt: 22,
     projectileSpeed: 195,
@@ -197,7 +210,7 @@ export const WEAPON_CATALOG: Record<WeaponType, WeaponDefinition> = {
     id: 'laser',
     name: 'Laser Shot',
     shortName: 'Laser',
-    cost: 960,
+    cost: 850,
     fireIntervalSec: 0.23,
     damagePerBolt: 42,
     projectileSpeed: 260,
@@ -236,7 +249,7 @@ export function resolveEffectiveWeapon(
   if (weaponType !== 'signature') return weaponType;
   if (planeId === 'titan') return 'spread';
   if (planeId === 'vortex') return 'burst';
-  return 'autolock';
+  return 'hyper';
 }
 
 export function getDisplayWeaponLabel(
@@ -250,7 +263,7 @@ export function getDisplayWeaponLabel(
     if (planeId === 'vortex') {
       return { name: 'Khas Vortex: Burst Fire', shortName: 'Vortex Burst', colorCss: '#0891b2' };
     }
-    return { name: 'Khas Aero: Auto Lock', shortName: 'Aero Lock', colorCss: '#16a34a' };
+    return { name: 'Khas Aero: Plasma Cepat Kuat', shortName: 'Aero Rail', colorCss: '#0284c7' };
   }
   const def = WEAPON_CATALOG[weaponType];
   return { name: def.name, shortName: def.shortName, colorCss: def.colorCss };
@@ -279,7 +292,7 @@ export const MODEL_TIER_CATALOG: Record<PlaneModelTier, ModelTierDefinition> = {
     tier: 3,
     name: 'LEVEL 3 – Elite Fighter',
     subtitle: 'Desain futuristik, dua mesin jet kembar, meriam sayap & pendar cahaya.',
-    upgradeCost: 520,
+    upgradeCost: 500,
     bonusDurability: 10,
     bonusSpeed: 0.08,
     bonusAgility: 0.08,
@@ -288,7 +301,7 @@ export const MODEL_TIER_CATALOG: Record<PlaneModelTier, ModelTierDefinition> = {
     tier: 4,
     name: 'LEVEL 4 – Legendary Fighter',
     subtitle: 'Rangka tempur premium, sayap multi-bilah, halo energi & dual-afterburner eksklusif.',
-    upgradeCost: 940,
+    upgradeCost: 900,
     bonusDurability: 15,
     bonusSpeed: 0.12,
     bonusAgility: 0.12,
@@ -299,16 +312,16 @@ export const MODEL_TIER_CATALOG: Record<PlaneModelTier, ModelTierDefinition> = {
 export const HEART_UPGRADE_COSTS = [120, 240, 420, 650]; // 2->3, 3->4, 4->5, 5->6
 
 // Ability capacity unlocks (fixed per-plane rules)
-export const TITAN_SHIELD_COSTS = [200, 440]; // 1->2->3 Pelindung
-export const VORTEX_JET_COSTS = [200, 440]; // 1->2->3 Jet
-export const BALANCE_SHIELD_COSTS = [260]; // 0->1 Pelindung
-export const BALANCE_JET_COSTS = [260]; // 0->1 Jet
+export const TITAN_SHIELD_COSTS = [180, 380]; // 1->2->3 Pelindung
+export const VORTEX_JET_COSTS = [180, 380]; // 1->2->3 Jet
+export const BALANCE_SHIELD_COSTS = [220]; // 0->1 Pelindung
+export const BALANCE_JET_COSTS = [220]; // 0->1 Jet
 
-// Level 1..10 challenging progression curves
-export const LV10_STRENGTH_COSTS = [70, 125, 190, 270, 365, 475, 605, 755, 925, 1140];
-export const LV10_SPEED_COSTS = [70, 120, 185, 260, 350, 460, 590, 740, 910, 1120];
-export const LV10_AGILITY_COSTS = [60, 110, 170, 240, 325, 425, 545, 685, 845, 1040];
-export const LV10_RECHARGE_COSTS = [80, 140, 210, 295, 395, 510, 645, 800, 980, 1200];
+// Level 1..10 effort-based curves (rewards defeating bosses across stages)
+export const LV10_STRENGTH_COSTS = [60, 90, 125, 165, 210, 265, 325, 395, 470, 560];
+export const LV10_SPEED_COSTS = [60, 90, 125, 165, 210, 265, 325, 395, 470, 560];
+export const LV10_AGILITY_COSTS = [55, 80, 110, 145, 190, 240, 300, 365, 440, 520];
+export const LV10_RECHARGE_COSTS = [65, 95, 130, 175, 225, 280, 345, 415, 495, 590];
 
 export const DEFAULT_PROGRESS: PlayerProgress = {
   points: 0,

@@ -12,6 +12,10 @@ export class FlightInputController {
   private dragSteer = 0;
   private dragVertical = 0;
 
+  private joystickActive = false;
+  private joystickSteer = 0;
+  private joystickVertical = 0;
+
   private sensitivity = 1.15;
   private activeSource: ControlSource = 'keyboard';
 
@@ -65,6 +69,9 @@ export class FlightInputController {
     this.dragPointerId = null;
     this.dragSteer = 0;
     this.dragVertical = 0;
+    this.joystickActive = false;
+    this.joystickSteer = 0;
+    this.joystickVertical = 0;
   }
 
   public attach(): void {
@@ -90,6 +97,15 @@ export class FlightInputController {
       this.activeSource = 'touch';
     } else {
       this.heldButtons.delete(action);
+    }
+  }
+
+  public setJoystick(steer: number, vertical: number, active: boolean): void {
+    this.joystickActive = active;
+    this.joystickSteer = Math.max(-1, Math.min(1, steer));
+    this.joystickVertical = Math.max(-1, Math.min(1, vertical));
+    if (active) {
+      this.activeSource = 'touch';
     }
   }
 
@@ -144,12 +160,16 @@ export class FlightInputController {
 
     if (btnSteer !== 0) {
       steer = Math.max(-1, Math.min(1, btnSteer * steerScale));
+    } else if (this.joystickActive) {
+      steer = Math.max(-1, Math.min(1, this.joystickSteer * steerScale));
     } else if (this.dragPointerId !== null) {
       steer = this.dragSteer;
     }
 
     if (btnVert !== 0) {
       vertical = Math.max(-1, Math.min(1, btnVert * steerScale));
+    } else if (this.joystickActive) {
+      vertical = Math.max(-1, Math.min(1, this.joystickVertical * steerScale));
     } else if (this.dragPointerId !== null) {
       vertical = this.dragVertical;
     }

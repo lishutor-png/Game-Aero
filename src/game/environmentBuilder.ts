@@ -189,7 +189,7 @@ export class MapEnvironmentManager {
       roughness: 0.35,
       metalness: 0.55,
     });
-    const count = 40;
+    const count = 30;
     this.buildingInstanced = new THREE.InstancedMesh(bGeo, bMat, count);
     this.buildingInstanced.frustumCulled = false;
     for (let i = 0; i < count; i++) {
@@ -197,10 +197,10 @@ export class MapEnvironmentManager {
       this.buildingData.push({
         x: side * (22 + Math.random() * 26),
         y: groundY,
-        z: -i * 5.2,
-        sx: 0.8 + Math.random() * 0.9,
-        sy: 0.5 + Math.random() * 1.4,
-        sz: 0.8 + Math.random() * 0.9,
+        z: -i * 6.8,
+        sx: 0.85 + Math.random() * 0.9,
+        sy: 0.55 + Math.random() * 1.4,
+        sz: 0.85 + Math.random() * 0.9,
       });
     }
     this.syncInstanced(this.buildingInstanced, this.buildingData);
@@ -231,13 +231,12 @@ export class MapEnvironmentManager {
     // 1. Shimmering Winding River down the valley
     const riverGeo = new THREE.PlaneGeometry(9.5, 240);
     riverGeo.rotateX(-Math.PI / 2);
-    const riverMat = new THREE.MeshPhysicalMaterial({
+    const riverMat = new THREE.MeshStandardMaterial({
       color: 0x0ea5e9,
       emissive: 0x0284c7,
-      emissiveIntensity: 0.25,
-      roughness: 0.08,
-      metalness: 0.15,
-      clearcoat: 1.0,
+      emissiveIntensity: 0.28,
+      roughness: 0.12,
+      metalness: 0.35,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
@@ -273,7 +272,7 @@ export class MapEnvironmentManager {
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.92 });
     const crownMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.8 });
 
-    const count = 48;
+    const count = 34;
     this.treeTrunksInstanced = new THREE.InstancedMesh(trunkGeo, trunkMat, count);
     this.treeCrownsInstanced = new THREE.InstancedMesh(crownGeo, crownMat, count);
     this.treeTrunksInstanced.frustumCulled = false;
@@ -284,8 +283,8 @@ export class MapEnvironmentManager {
       this.treeData.push({
         x: side * (19 + Math.random() * 28),
         y: groundY,
-        z: -i * 4.2,
-        s: 0.75 + Math.random() * 0.9,
+        z: -i * 5.8,
+        s: 0.8 + Math.random() * 0.9,
       });
     }
     this.syncTreeInstances();
@@ -304,7 +303,7 @@ export class MapEnvironmentManager {
       metalness: 0.02,
       flatShading: true,
     });
-    const count = 36;
+    const count = 26;
     this.duneInstanced = new THREE.InstancedMesh(duneGeo, duneMat, count);
     this.duneInstanced.frustumCulled = false;
     for (let i = 0; i < count; i++) {
@@ -312,10 +311,10 @@ export class MapEnvironmentManager {
       this.duneData.push({
         x: side * (22 + Math.random() * 32),
         y: groundY - 0.5,
-        z: -i * 5.6,
-        sx: 0.85 + Math.random() * 1.1,
-        sy: 0.7 + Math.random() * 1.3,
-        sz: 0.85 + Math.random() * 1.2,
+        z: -i * 7.6,
+        sx: 0.9 + Math.random() * 1.1,
+        sy: 0.75 + Math.random() * 1.3,
+        sz: 0.9 + Math.random() * 1.2,
       });
     }
     this.syncInstanced(this.duneInstanced, this.duneData);
@@ -334,7 +333,7 @@ export class MapEnvironmentManager {
       metalness: 0.08,
       flatShading: true,
     });
-    const count = 32;
+    const count = 24;
     this.mountainInstanced = new THREE.InstancedMesh(peakGeo, peakMat, count);
     this.mountainInstanced.frustumCulled = false;
     for (let i = 0; i < count; i++) {
@@ -342,17 +341,17 @@ export class MapEnvironmentManager {
       this.mountainData.push({
         x: side * (24 + Math.random() * 30),
         y: groundY,
-        z: -i * 6.2,
-        sx: 0.8 + Math.random() * 1.0,
-        sy: 0.75 + Math.random() * 1.25,
-        sz: 0.8 + Math.random() * 1.0,
+        z: -i * 8.2,
+        sx: 0.85 + Math.random() * 1.0,
+        sy: 0.8 + Math.random() * 1.25,
+        sz: 0.85 + Math.random() * 1.0,
       });
     }
     this.syncInstanced(this.mountainInstanced, this.mountainData);
     this.snowGroup.add(this.mountainInstanced);
 
     // 2. Active Weather Particle Field (Snowflakes in Snow, Dust in Desert, Spores in Forest, Cosmic Dust in Space)
-    const pCount = 260;
+    const pCount = 150;
     this.weatherPositions = new Float32Array(pCount * 3);
     for (let i = 0; i < pCount; i++) {
       this.weatherPositions[i * 3] = (Math.random() - 0.5) * 44;
@@ -477,7 +476,7 @@ export class MapEnvironmentManager {
       for (let i = 0; i < this.buildingData.length; i++) {
         this.buildingData[i].z += dz;
         if (this.buildingData[i].z > 28) {
-          this.buildingData[i].z -= this.buildingData.length * 5.2;
+          this.buildingData[i].z -= this.buildingData.length * 6.8;
         }
       }
       this.syncInstanced(this.buildingInstanced, this.buildingData);
@@ -492,7 +491,7 @@ export class MapEnvironmentManager {
       for (let i = 0; i < this.treeData.length; i++) {
         this.treeData[i].z += dz;
         if (this.treeData[i].z > 28) {
-          this.treeData[i].z -= this.treeData.length * 4.2;
+          this.treeData[i].z -= this.treeData.length * 5.8;
         }
       }
       this.syncTreeInstances();
@@ -500,7 +499,7 @@ export class MapEnvironmentManager {
       for (let i = 0; i < this.duneData.length; i++) {
         this.duneData[i].z += dz;
         if (this.duneData[i].z > 28) {
-          this.duneData[i].z -= this.duneData.length * 5.6;
+          this.duneData[i].z -= this.duneData.length * 7.6;
         }
       }
       this.syncInstanced(this.duneInstanced, this.duneData);
@@ -508,26 +507,31 @@ export class MapEnvironmentManager {
       for (let i = 0; i < this.mountainData.length; i++) {
         this.mountainData[i].z += dz;
         if (this.mountainData[i].z > 30) {
-          this.mountainData[i].z -= this.mountainData.length * 6.2;
+          this.mountainData[i].z -= this.mountainData.length * 8.2;
         }
       }
       this.syncInstanced(this.mountainInstanced, this.mountainData);
     }
 
-    // Animate weather / snow / space dust particles
-    const pos = this.weatherParticles.geometry.attributes.position as THREE.BufferAttribute;
+    // Animate weather / snow / space dust particles directly via Float32Array
+    const arr = this.weatherPositions;
     const fallY = this.currentMap === 'snow' ? 4.2 : 0.4;
     const windX = this.currentMap === 'snow' || this.currentMap === 'desert' ? -3.2 : 0;
-    for (let i = 0; i < pos.count; i++) {
-      let x = pos.getX(i) + windX * dt;
-      let y = pos.getY(i) - fallY * dt;
-      let z = pos.getZ(i) + dz * 1.15;
+    const stepX = windX * dt;
+    const stepY = fallY * dt;
+    const stepZ = dz * 1.15;
+    for (let i = 0; i < arr.length; i += 3) {
+      let x = arr[i] + stepX;
+      let y = arr[i + 1] - stepY;
+      let z = arr[i + 2] + stepZ;
       if (z > 10) z -= 98;
       if (y < -2) y += 14;
       if (x < -22) x += 44;
-      pos.setXYZ(i, x, y, z);
+      arr[i] = x;
+      arr[i + 1] = y;
+      arr[i + 2] = z;
     }
-    pos.needsUpdate = true;
+    (this.weatherParticles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 
   public dispose(): void {

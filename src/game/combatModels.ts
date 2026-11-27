@@ -4,6 +4,8 @@ import type { EnemyKind, MapId, WeaponType } from '../types/game';
 export interface EnemyVisualHandles {
   root: THREE.Group;
   modelByKind: Record<EnemyKind, THREE.Group>;
+  bossStageGroups: THREE.Group[];
+  setBossStage: (stageNumber: number) => void;
   spinnerParts: THREE.Object3D[];
   dispose: () => void;
 }
@@ -140,10 +142,14 @@ export function createSharedCombatMaterials(): SharedCombatMaterials {
   };
 }
 
-export function createEnemyPoolUnit(mats: SharedCombatMaterials): EnemyVisualHandles {
+export function createEnemyPoolUnit(
+  mats: SharedCombatMaterials,
+  includeBoss = false,
+): EnemyVisualHandles {
   const root = new THREE.Group();
   root.visible = false;
   const geometries: THREE.BufferGeometry[] = [];
+  const materials: THREE.Material[] = [];
   const spinnerParts: THREE.Object3D[] = [];
 
   // 1. DRONE KECIL (Scout Quad/Orb Drone - 5 composite parts)
@@ -240,42 +246,227 @@ export function createEnemyPoolUnit(mats: SharedCombatMaterials): EnemyVisualHan
   wEngineR.position.set(1.3, 0, -1.5);
   warship.add(wHull, wBridge, wWing, wTurret, wEngineL, wEngineR);
 
-  // 5. BOSS BERUKURAN BESAR (Sky Dreadnought Fortress - 9 parts)
+  // 5. EVOLVING STAGE BOSSES (Lv.1 Hutan -> Lv.5 Angkasa, built only for dedicated Boss slot)
   const boss = new THREE.Group();
-  const bHullGeo = new THREE.BoxGeometry(3.8, 1.35, 5.8);
-  const bProwGeo = new THREE.ConeGeometry(1.85, 2.2, 6);
-  bProwGeo.rotateX(Math.PI / 2);
-  bProwGeo.scale(1.25, 0.55, 1.0);
-  const bWingGeo = new THREE.BoxGeometry(8.6, 0.35, 2.1);
-  const bPodGeo = new THREE.CylinderGeometry(0.55, 0.65, 2.8, 12);
-  bPodGeo.rotateX(Math.PI / 2);
-  const bCoreGeo = new THREE.IcosahedronGeometry(0.95, 1);
-  const bRingGeo = new THREE.TorusGeometry(1.45, 0.12, 8, 24);
-  geometries.push(bHullGeo, bProwGeo, bWingGeo, bPodGeo, bCoreGeo, bRingGeo);
+  const bossStageGroups: THREE.Group[] = [];
 
-  const bHull = new THREE.Mesh(bHullGeo, mats.bossHullMat);
-  const bProw = new THREE.Mesh(bProwGeo, mats.enemyDarkMat);
-  bProw.position.set(0, 0, 3.8);
-  const bWing = new THREE.Mesh(bWingGeo, mats.enemyDarkMat);
-  bWing.position.set(0, 0.1, -0.2);
-  const bPodL = new THREE.Mesh(bPodGeo, mats.bossHullMat);
-  bPodL.position.set(-3.8, -0.1, 0.4);
-  const bPodR = new THREE.Mesh(bPodGeo, mats.bossHullMat);
-  bPodR.position.set(3.8, -0.1, 0.4);
-  const bCore = new THREE.Mesh(bCoreGeo, mats.bossCoreMat);
-  bCore.position.set(0, 0.2, 2.55);
-  const bRing = new THREE.Mesh(bRingGeo, mats.enemyGlowMat);
-  bRing.position.set(0, 0.2, 2.65);
-  spinnerParts.push(bRing);
-  boss.add(bHull, bProw, bWing, bPodL, bPodR, bCore, bRing);
+  const setBossStage = (stageNumber: number) => {
+    const idx = Math.min(Math.max(0, stageNumber - 1), Math.max(0, bossStageGroups.length - 1));
+    for (let i = 0; i < bossStageGroups.length; i++) {
+      bossStageGroups[i].visible = i === idx;
+    }
+  };
+
+  if (includeBoss) {
+    const barrelGeo = new THREE.CylinderGeometry(0.14, 0.17, 1.8, 8);
+    barrelGeo.rotateX(Math.PI / 2);
+    const smallWingShape = new THREE.Shape();
+    smallWingShape.moveTo(0, -0.5);
+    smallWingShape.lineTo(2.9, 0.7);
+    smallWingShape.lineTo(2.9, 1.15);
+    smallWingShape.lineTo(0, 0.85);
+    smallWingShape.closePath();
+    const wingStage1Geo = new THREE.ExtrudeGeometry(smallWingShape, {
+      depth: 0.14,
+      bevelEnabled: true,
+      bevelThickness: 0.03,
+      bevelSize: 0.03,
+      bevelSegments: 1,
+    });
+    wingStage1Geo.rotateX(Math.PI / 2);
+
+    const wideWingShape = new THREE.Shape();
+    wideWingShape.moveTo(0, -0.75);
+    wideWingShape.lineTo(4.1, 0.55);
+    wideWingShape.lineTo(4.3, 1.35);
+    wideWingShape.lineTo(1.2, 1.15);
+    wideWingShape.lineTo(0, 0.9);
+    wideWingShape.closePath();
+    const wingStageWideGeo = new THREE.ExtrudeGeometry(wideWingShape, {
+      depth: 0.16,
+      bevelEnabled: true,
+      bevelThickness: 0.04,
+      bevelSize: 0.04,
+      bevelSegments: 1,
+    });
+    wingStageWideGeo.rotateX(Math.PI / 2);
+
+    const noseConeGeo = new THREE.ConeGeometry(0.82, 4.4, 10);
+    noseConeGeo.rotateX(Math.PI / 2);
+    const canopyGeo = new THREE.CapsuleGeometry(0.36, 1.0, 6, 10);
+    canopyGeo.rotateX(Math.PI / 2);
+    const jetPodGeo = new THREE.CylinderGeometry(0.38, 0.48, 2.2, 10);
+    jetPodGeo.rotateX(Math.PI / 2);
+    const finGeo = new THREE.BoxGeometry(0.14, 1.25, 1.35);
+    const bCoreGeo = new THREE.IcosahedronGeometry(0.75, 1);
+    const bRingGeo = new THREE.TorusGeometry(1.35, 0.1, 8, 24);
+    const bOuterRingGeo = new THREE.TorusGeometry(2.15, 0.11, 8, 28);
+    geometries.push(
+      barrelGeo,
+      wingStage1Geo,
+      wingStageWideGeo,
+      noseConeGeo,
+      canopyGeo,
+      jetPodGeo,
+      finGeo,
+      bCoreGeo,
+      bRingGeo,
+      bOuterRingGeo,
+    );
+
+    // Stage 1 Boss (Forest - Sylvan Scout Ace: 1 cannon, emerald/bronze hull)
+    const b1Mat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.34, metalness: 0.65 });
+    const b1Glow = new THREE.MeshStandardMaterial({ color: 0x4ade80, emissive: 0x22c55e, emissiveIntensity: 1.7 });
+    const b1 = new THREE.Group();
+    const b1Body = new THREE.Mesh(noseConeGeo, b1Mat);
+    const b1WingR = new THREE.Mesh(wingStage1Geo, mats.enemyDarkMat);
+    const b1WingL = new THREE.Mesh(wingStage1Geo, mats.enemyDarkMat);
+    b1WingL.scale.x = -1;
+    const b1Canopy = new THREE.Mesh(canopyGeo, b1Glow);
+    b1Canopy.position.set(0, 0.38, 0.25);
+    const b1Fin = new THREE.Mesh(finGeo, b1Mat);
+    b1Fin.position.set(0, 0.72, -1.4);
+    const b1Cannon = new THREE.Mesh(barrelGeo, b1Glow);
+    b1Cannon.position.set(0, -0.22, 1.6);
+    b1.add(b1Body, b1WingR, b1WingL, b1Canopy, b1Fin, b1Cannon);
+
+    // Stage 2 Boss (Desert - Dune Twin-Fang: 2 cannons, twin intakes, amber/crimson hull)
+    const b2Mat = new THREE.MeshStandardMaterial({ color: 0x9a3412, roughness: 0.3, metalness: 0.7 });
+    const b2Glow = new THREE.MeshStandardMaterial({ color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 1.9 });
+    const b2 = new THREE.Group();
+    const b2Body = new THREE.Mesh(noseConeGeo, b2Mat);
+    b2Body.scale.set(1.22, 0.95, 1.15);
+    const b2WingR = new THREE.Mesh(wingStageWideGeo, mats.enemyDarkMat);
+    const b2WingL = new THREE.Mesh(wingStageWideGeo, mats.enemyDarkMat);
+    b2WingL.scale.x = -1;
+    const b2CanardR = new THREE.Mesh(wingStage1Geo, b2Mat);
+    b2CanardR.scale.setScalar(0.45);
+    b2CanardR.position.set(0.3, 0.05, 1.3);
+    const b2CanardL = b2CanardR.clone();
+    b2CanardL.scale.x = -0.45;
+    b2CanardL.position.x = -0.3;
+    const b2Canopy = new THREE.Mesh(canopyGeo, b2Glow);
+    b2Canopy.position.set(0, 0.42, 0.3);
+    const b2PodL = new THREE.Mesh(jetPodGeo, b2Mat);
+    b2PodL.position.set(-1.35, -0.05, -0.5);
+    const b2PodR = new THREE.Mesh(jetPodGeo, b2Mat);
+    b2PodR.position.set(1.35, -0.05, -0.5);
+    const b2GunL = new THREE.Mesh(barrelGeo, b2Glow);
+    b2GunL.position.set(-1.85, -0.15, 1.45);
+    const b2GunR = new THREE.Mesh(barrelGeo, b2Glow);
+    b2GunR.position.set(1.85, -0.15, 1.45);
+    b2.add(b2Body, b2WingR, b2WingL, b2CanardR, b2CanardL, b2Canopy, b2PodL, b2PodR, b2GunL, b2GunR);
+
+    // Stage 3 Boss (City - Metro Tri-Valkyrie: 3 cannons, twin jets, stealth cobalt-cyan)
+    const b3Mat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.24, metalness: 0.8 });
+    const b3Glow = new THREE.MeshStandardMaterial({ color: 0x38bdf8, emissive: 0x0ea5e9, emissiveIntensity: 2.0 });
+    const b3 = new THREE.Group();
+    const b3Body = new THREE.Mesh(noseConeGeo, b3Mat);
+    b3Body.scale.set(1.35, 1.0, 1.28);
+    const b3WingR = new THREE.Mesh(wingStageWideGeo, b3Mat);
+    b3WingR.scale.set(1.12, 1, 1.1);
+    const b3WingL = new THREE.Mesh(wingStageWideGeo, b3Mat);
+    b3WingL.scale.set(-1.12, 1, 1.1);
+    const b3FinL = new THREE.Mesh(finGeo, mats.enemyDarkMat);
+    b3FinL.position.set(-1.15, 0.78, -1.5);
+    b3FinL.rotation.z = 0.28;
+    const b3FinR = new THREE.Mesh(finGeo, mats.enemyDarkMat);
+    b3FinR.position.set(1.15, 0.78, -1.5);
+    b3FinR.rotation.z = -0.28;
+    const b3Core = new THREE.Mesh(bCoreGeo, b3Glow);
+    b3Core.position.set(0, 0.35, 0.85);
+    const b3Ring = new THREE.Mesh(bRingGeo, b3Glow);
+    b3Ring.position.set(0, 0.2, 1.6);
+    spinnerParts.push(b3Ring);
+    const b3GunC = new THREE.Mesh(barrelGeo, b3Glow);
+    b3GunC.position.set(0, -0.25, 2.1);
+    const b3GunL = new THREE.Mesh(barrelGeo, b3Glow);
+    b3GunL.position.set(-2.3, -0.15, 1.3);
+    const b3GunR = new THREE.Mesh(barrelGeo, b3Glow);
+    b3GunR.position.set(2.3, -0.15, 1.3);
+    b3.add(b3Body, b3WingR, b3WingL, b3FinL, b3FinR, b3Core, b3Ring, b3GunC, b3GunL, b3GunR);
+
+    // Stage 4 Boss (Snow - Frost Quad-Dominator: 4 cannons, armored cryo-violet heavy wing)
+    const b4Mat = new THREE.MeshStandardMaterial({ color: 0x312e81, roughness: 0.22, metalness: 0.84 });
+    const b4Glow = new THREE.MeshStandardMaterial({ color: 0x67e8f9, emissive: 0x06b6d4, emissiveIntensity: 2.1 });
+    const b4 = new THREE.Group();
+    const b4Hull = new THREE.Mesh(noseConeGeo, b4Mat);
+    b4Hull.scale.set(1.55, 1.15, 1.38);
+    const b4WingR = new THREE.Mesh(wingStageWideGeo, mats.enemyDarkMat);
+    b4WingR.scale.set(1.26, 1.1, 1.22);
+    const b4WingL = new THREE.Mesh(wingStageWideGeo, mats.enemyDarkMat);
+    b4WingL.scale.set(-1.26, 1.1, 1.22);
+    const b4PodL = new THREE.Mesh(jetPodGeo, b4Mat);
+    b4PodL.position.set(-2.6, 0.05, -0.3);
+    const b4PodR = new THREE.Mesh(jetPodGeo, b4Mat);
+    b4PodR.position.set(2.6, 0.05, -0.3);
+    const b4Core = new THREE.Mesh(bCoreGeo, b4Glow);
+    b4Core.position.set(0, 0.45, 1.2);
+    b4Core.scale.setScalar(1.2);
+    const b4Ring = new THREE.Mesh(bRingGeo, b4Glow);
+    b4Ring.position.set(0, 0.25, 2.0);
+    spinnerParts.push(b4Ring);
+    for (const gx of [-3.3, -1.35, 1.35, 3.3]) {
+      const g = new THREE.Mesh(barrelGeo, b4Glow);
+      g.position.set(gx, -0.2, 1.6);
+      b4.add(g);
+    }
+    b4.add(b4Hull, b4WingR, b4WingL, b4PodL, b4PodR, b4Core, b4Ring);
+
+    // Stage 5 Boss (Space - Void Sovereign Prime: 5 cannons, obsidian/gold dread-fighter + dual spinning rings)
+    const b5GoldMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.22, metalness: 0.9 });
+    const b5 = new THREE.Group();
+    const b5Hull = new THREE.Mesh(noseConeGeo, mats.bossHullMat);
+    b5Hull.scale.set(1.8, 1.25, 1.55);
+    const b5WingR = new THREE.Mesh(wingStageWideGeo, mats.enemyDarkMat);
+    b5WingR.scale.set(1.42, 1.2, 1.32);
+    const b5WingL = new THREE.Mesh(wingStageWideGeo, mats.enemyDarkMat);
+    b5WingL.scale.set(-1.42, 1.2, 1.32);
+    const b5TrimR = new THREE.Mesh(wingStage1Geo, b5GoldMat);
+    b5TrimR.scale.set(1.25, 0.85, 0.75);
+    b5TrimR.position.set(0.3, 0.22, -0.4);
+    const b5TrimL = new THREE.Mesh(wingStage1Geo, b5GoldMat);
+    b5TrimL.scale.set(-1.25, 0.85, 0.75);
+    b5TrimL.position.set(-0.3, 0.22, -0.4);
+    const b5Core = new THREE.Mesh(bCoreGeo, mats.bossCoreMat);
+    b5Core.position.set(0, 0.35, 2.1);
+    b5Core.scale.setScalar(1.35);
+    const b5InnerRing = new THREE.Mesh(bRingGeo, mats.bossCoreMat);
+    b5InnerRing.position.set(0, 0.25, 2.4);
+    const b5OuterRing = new THREE.Mesh(bOuterRingGeo, mats.enemyGlowMat);
+    b5OuterRing.position.set(0, 0.25, 2.2);
+    spinnerParts.push(b5InnerRing, b5OuterRing);
+    for (const px of [-3.6, -1.8, 1.8, 3.6]) {
+      const pod = new THREE.Mesh(jetPodGeo, mats.bossHullMat);
+      pod.position.set(px, -0.05, -0.4);
+      b5.add(pod);
+    }
+    for (const gx of [-4.0, -2.1, 0, 2.1, 4.0]) {
+      const gun = new THREE.Mesh(barrelGeo, mats.bossCoreMat);
+      gun.scale.set(1.15, 1.15, 1.25);
+      gun.position.set(gx, -0.22, gx === 0 ? 2.6 : 1.7);
+      b5.add(gun);
+    }
+    b5.add(b5Hull, b5WingR, b5WingL, b5TrimR, b5TrimL, b5Core, b5InnerRing, b5OuterRing);
+
+    materials.push(b1Mat, b1Glow, b2Mat, b2Glow, b3Mat, b3Glow, b4Mat, b4Glow, b5GoldMat);
+    bossStageGroups.push(b1, b2, b3, b4, b5);
+    boss.add(b1, b2, b3, b4, b5);
+    setBossStage(1);
+  }
 
   root.add(drone, fighter, interceptor, warship, boss);
 
   return {
     root,
     modelByKind: { drone, fighter, interceptor, warship, boss },
+    bossStageGroups,
+    setBossStage,
     spinnerParts,
-    dispose: () => geometries.forEach((g) => g.dispose()),
+    dispose: () => {
+      geometries.forEach((g) => g.dispose());
+      materials.forEach((m) => m.dispose());
+    },
   };
 }
 
@@ -353,6 +544,12 @@ export function createProjectileMeshPool(
       group.scale.set(1.15, 1.15, 1.25);
       coreMat.color.setHex(0xe879f9);
       haloMat.color.setHex(0xa21caf);
+    } else if (weapon === 'hyper') {
+      core.geometry = laserGeo;
+      halo.geometry = laserHaloGeo;
+      group.scale.set(1.25, 1.25, 1.05);
+      coreMat.color.setHex(0x7dd3fc);
+      haloMat.color.setHex(0x0284c7);
     } else if (weapon === 'autolock') {
       core.geometry = missileGeo;
       halo.geometry = missileHaloGeo;
@@ -446,6 +643,90 @@ export function createLockReticle(): { group: THREE.Group; dispose: () => void }
   };
 }
 
+export function createAimSight(): {
+  farGroup: THREE.Group;
+  midPip: THREE.Mesh;
+  setTargetInSight: (inSight: boolean) => void;
+  dispose: () => void;
+} {
+  const farGroup = new THREE.Group();
+  const ringGeo = new THREE.RingGeometry(1.05, 1.24, 24);
+  const dotGeo = new THREE.CircleGeometry(0.24, 14);
+  const tickGeo = new THREE.PlaneGeometry(0.55, 0.14);
+  const midPipGeo = new THREE.RingGeometry(0.32, 0.44, 16);
+
+  const mainMat = new THREE.MeshBasicMaterial({
+    color: 0x38bdf8,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.92,
+    depthTest: false,
+    toneMapped: false,
+    fog: false,
+  });
+
+  const midMat = new THREE.MeshBasicMaterial({
+    color: 0xe0f2fe,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.6,
+    depthTest: false,
+    toneMapped: false,
+    fog: false,
+  });
+
+  const ring = new THREE.Mesh(ringGeo, mainMat);
+  const dot = new THREE.Mesh(dotGeo, mainMat);
+
+  const tickLeft = new THREE.Mesh(tickGeo, mainMat);
+  tickLeft.position.set(-1.55, 0, 0);
+  const tickRight = new THREE.Mesh(tickGeo, mainMat);
+  tickRight.position.set(1.55, 0, 0);
+  const tickTop = new THREE.Mesh(tickGeo, mainMat);
+  tickTop.rotation.z = Math.PI / 2;
+  tickTop.position.set(0, 1.55, 0);
+  const tickBottom = new THREE.Mesh(tickGeo, mainMat);
+  tickBottom.rotation.z = Math.PI / 2;
+  tickBottom.position.set(0, -1.55, 0);
+
+  farGroup.add(ring, dot, tickLeft, tickRight, tickTop, tickBottom);
+  farGroup.renderOrder = 11;
+  farGroup.visible = false;
+
+  const midPip = new THREE.Mesh(midPipGeo, midMat);
+  midPip.renderOrder = 11;
+  midPip.visible = false;
+
+  let wasInSight = false;
+  const setTargetInSight = (inSight: boolean) => {
+    if (inSight === wasInSight) return;
+    wasInSight = inSight;
+    if (inSight) {
+      mainMat.color.setHex(0xfacc15);
+      midMat.color.setHex(0xfde047);
+      farGroup.scale.setScalar(1.18);
+    } else {
+      mainMat.color.setHex(0x38bdf8);
+      midMat.color.setHex(0xe0f2fe);
+      farGroup.scale.setScalar(1.0);
+    }
+  };
+
+  return {
+    farGroup,
+    midPip,
+    setTargetInSight,
+    dispose: () => {
+      ringGeo.dispose();
+      dotGeo.dispose();
+      tickGeo.dispose();
+      midPipGeo.dispose();
+      mainMat.dispose();
+      midMat.dispose();
+    },
+  };
+}
+
 export function buildThemedObstacleVisuals(
   mats: SharedCombatMaterials,
   obstacleBodyMat: THREE.MeshStandardMaterial,
@@ -477,7 +758,6 @@ export function buildThemedObstacleVisuals(
   const rockMain = new THREE.Mesh(sharedGeos.rockGeo, mats.rockMat);
   rockMain.position.y = 3.2;
   rockMain.scale.set(1.3, 1.45, 1.25);
-  rockMain.castShadow = true;
   const rockSub = new THREE.Mesh(sharedGeos.rockGeo, mats.rockMat);
   rockSub.position.set(0.65, 1.5, 0.3);
   rockSub.scale.set(0.8, 0.9, 0.8);
@@ -487,21 +767,17 @@ export function buildThemedObstacleVisuals(
   const treeVariant = new THREE.Group();
   const trunk = new THREE.Mesh(sharedGeos.treeTrunkGeo, mats.trunkMat);
   trunk.position.y = 1.6;
-  trunk.castShadow = true;
   const crown1 = new THREE.Mesh(sharedGeos.treeCrownGeo, mats.foliageMat);
   crown1.position.y = 3.6;
-  crown1.castShadow = true;
   const crown2 = new THREE.Mesh(sharedGeos.treeCrownGeo, mats.foliageMat);
   crown2.position.y = 5.1;
   crown2.scale.setScalar(0.76);
-  crown2.castShadow = true;
   treeVariant.add(trunk, crown1, crown2);
 
   // 3. City Skyscraper / Building (for City)
   const buildingVariant = new THREE.Group();
   const bMain = new THREE.Mesh(sharedGeos.buildingGeo, mats.buildingMat);
   bMain.position.y = 3.8;
-  bMain.castShadow = true;
   const bWins = new THREE.Mesh(sharedGeos.buildingWinGeo, mats.windowGlowMat);
   bWins.position.set(0, 3.8, 1.08);
   const bSpire = new THREE.Mesh(sharedGeos.beaconGeo, obstacleAccentMat);
@@ -511,9 +787,7 @@ export function buildThemedObstacleVisuals(
   // 4. Tower / Menara (Classic Pillar + Beacon)
   const towerVariant = new THREE.Group();
   const ped = new THREE.Mesh(sharedGeos.pedestalGeo, obstacleBodyMat);
-  ped.castShadow = true;
   const tow = new THREE.Mesh(sharedGeos.towerGeo, obstacleBodyMat);
-  tow.castShadow = true;
   const bea = new THREE.Mesh(sharedGeos.beaconGeo, obstacleAccentMat);
   towerVariant.add(ped, tow, bea);
 
@@ -533,14 +807,12 @@ export function buildThemedObstacleVisuals(
   const leftPillar = new THREE.Group();
   const lpBase = new THREE.Mesh(sharedGeos.pedestalGeo, obstacleBodyMat);
   const lpTow = new THREE.Mesh(sharedGeos.towerGeo, gateFrameMat);
-  lpTow.castShadow = true;
   leftPillar.add(lpBase, lpTow);
   group.add(leftPillar);
 
   const rightPillar = new THREE.Group();
   const rpBase = new THREE.Mesh(sharedGeos.pedestalGeo, obstacleBodyMat);
   const rpTow = new THREE.Mesh(sharedGeos.towerGeo, gateFrameMat);
-  rpTow.castShadow = true;
   rightPillar.add(rpBase, rpTow);
   group.add(rightPillar);
 

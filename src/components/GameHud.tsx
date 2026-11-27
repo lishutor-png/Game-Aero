@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   Pause,
   Shield,
@@ -26,9 +26,10 @@ interface GameHudProps {
   onActivateBooster: () => void;
   onActivateShield: () => void;
   onControlButton: (action: ControlActionKey, pressed: boolean) => void;
+  onJoystickInput: (steer: number, vertical: number, active: boolean) => void;
 }
 
-export function GameHud({
+export const GameHud = memo(function GameHud({
   hud,
   mode,
   bestScore,
@@ -38,13 +39,13 @@ export function GameHud({
   onActivateBooster,
   onActivateShield,
   onControlButton,
+  onJoystickInput,
 }: GameHudProps) {
-  const [pressedMap, setPressedMap] = useState<Record<ControlActionKey, boolean>>({
-    left: false,
-    right: false,
-    up: false,
-    down: false,
-    shoot: false,
+  const [shootPressed, setShootPressed] = useState(false);
+  const [knobOffset, setKnobOffset] = useState<{ x: number; y: number; active: boolean }>({
+    x: 0,
+    y: 0,
+    active: false,
   });
 
   const theme = ENVIRONMENT_THEMES[hud.themeId];
@@ -70,62 +71,50 @@ export function GameHud({
       ? Math.max(0, Math.min(100, (1 - hud.armorRechargeRemaining / hud.rechargeIntervalSec) * 100))
       : 100;
 
-  const dpadRef = useRef<HTMLDivElement | null>(null);
-  const dpadPointerIdRef = useRef<number | null>(null);
+  const joystickRef = useRef<HTMLDivElement | null>(null);
+  const joystickPointerIdRef = useRef<number | null>(null);
 
-  const updateDpadFromPointer = (clientX: number, clientY: number) => {
-    const el = dpadRef.current;
+  const updateJoystickFromPointer = (clientX: number, clientY: number) => {
+    const el = joystickRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    const halfW = Math.max(1, rect.width / 2);
-    const halfH = Math.max(1, rect.height / 2);
-    const nx = (clientX - cx) / halfW;
-    const ny = (clientY - cy) / halfH;
-    const mag = Math.hypot(nx, ny);
+    const maxRadius = Math.max(24, rect.width * 0.34);
 
-    const deadzone = 0.16;
-    const nextLeft = mag >= deadzone && nx < -0.24;
-    const nextRight = mag >= deadzone && nx > 0.24;
-    const nextUp = mag >= deadzone && ny < -0.24;
-    const nextDown = mag >= deadzone && ny > 0.24;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxRadius) {
+      const scale = maxRadius / dist;
+      dx *= scale;
+      dy *= scale;
+    }
 
-    setPressedMap((prev) => {
-      if (
-        prev.left === nextLeft &&
-        prev.right === nextRight &&
-        prev.up === nextUp &&
-        prev.down === nextDown
-      ) {
-        return prev;
-      }
-      if (prev.left !== nextLeft) onControlButton('left', nextLeft);
-      if (prev.right !== nextRight) onControlButton('right', nextRight);
-      if (prev.up !== nextUp) onControlButton('up', nextUp);
-      if (prev.down !== nextDown) onControlButton('down', nextDown);
-      return {
-        ...prev,
-        left: nextLeft,
-        right: nextRight,
-        up: nextUp,
-        down: nextDown,
-      };
-    });
+    const normX = dx / maxRadius;
+    const normY = -dy / maxRadius;
+    const mag = Math.hypot(normX, normY);
+    const deadzone = 0.08;
+
+    if (mag < deadzone) {
+      onJoystickInput(0, 0, true);
+    } else {
+      const rescaled = (mag - deadzone) / (1 - deadzone);
+      const factor = Math.min(1, rescaled) / mag;
+      onJoystickInput(normX * factor, normY * factor, true);
+    }
+
+    setKnobOffset({ x: dx, y: dy, active: true });
   };
 
-  const releaseDpad = () => {
-    dpadPointerIdRef.current = null;
-    setPressedMap((prev) => {
-      if (prev.left) onControlButton('left', false);
-      if (prev.right) onControlButton('right', false);
-      if (prev.up) onControlButton('up', false);
-      if (prev.down) onControlButton('down', false);
-      return { ...prev, left: false, right: false, up: false, down: false };
-    });
+  const releaseJoystick = () => {
+    if (joystickPointerIdRef.current === null && !knobOffset.active) return;
+    joystickPointerIdRef.current = null;
+    setKnobOffset({ x: 0, y: 0, active: false });
+    onJoystickInput(0, 0, false);
   };
 
-  const bindHoldButton = (action: ControlActionKey) => ({
+  const bindShootButton = () => ({
     onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
@@ -134,19 +123,23 @@ export function GameHud({
       } catch {
         // ignore if unsupported
       }
-      setPressedMap((prev) => ({ ...prev, [action]: true }));
-      onControlButton(action, true);
+      setShootPressed(true);
+      onControlButton('shoot', true);
     },
     onPointerUp: (e: ReactPointerEvent<HTMLButtonElement>) => {
       e.preventDefault();
       e.stopPropagation();
-      setPressedMap((prev) => ({ ...prev, [action]: false }));
-      onControlButton(action, false);
+      setShootPressed(false);
+      onControlButton('shoot', false);
     },
     onPointerCancel: (e: ReactPointerEvent<HTMLButtonElement>) => {
       e.stopPropagation();
-      setPressedMap((prev) => ({ ...prev, [action]: false }));
-      onControlButton(action, false);
+      setShootPressed(false);
+      onControlButton('shoot', false);
+    },
+    onLostPointerCapture: () => {
+      setShootPressed(false);
+      onControlButton('shoot', false);
     },
     onContextMenu: (e: ReactPointerEvent<HTMLButtonElement> | React.MouseEvent) => {
       e.preventDefault();
@@ -204,7 +197,7 @@ export function GameHud({
                   style={{ backgroundColor: 'var(--ui-surface-muted)' }}
                 >
                   <div
-                    className="h-full rounded-full transition-all duration-150"
+                    className="h-full rounded-full"
                     style={{
                       width: `${hud.maxDurability > 0 ? Math.min(100, (hud.durability / hud.maxDurability) * 100) : 0}%`,
                       backgroundColor: hud.durability <= 25 ? '#ef4444' : '#14b8a6',
@@ -259,8 +252,70 @@ export function GameHud({
           )}
         </div>
 
-        {/* Top-Center: Boss HP, Active Status, or Practice Guidance */}
+        {/* Top-Center: Stage Mission Tracker, Boss HP, Stage Transition Banner, or Practice Guidance */}
         <div className="flex flex-col items-center gap-1.5 max-w-sm">
+          {hud.stageClearBanner && (
+            <div
+              role="status"
+              className="a11y-card rounded-xl px-3 py-1.5 border text-center text-[11px] font-extrabold shadow-lg"
+              style={{
+                backgroundColor: '#059669',
+                borderColor: '#6ee7b7',
+                color: '#ffffff',
+              }}
+            >
+              {hud.stageClearBanner}
+            </div>
+          )}
+
+          {mode === 'standard' && !hud.bossActive && (
+            <div
+              className="a11y-card rounded-xl px-2.5 py-1.5 border shadow-md text-[10px] sm:text-[11px]"
+              style={{
+                backgroundColor: 'var(--ui-bg)',
+                borderColor: 'var(--ui-border)',
+                color: 'var(--ui-text)',
+              }}
+            >
+              <div className="flex items-center justify-center gap-2 font-extrabold mb-1">
+                <span style={{ color: theme.uiAccentCss }}>{hud.stageLabel}</span>
+                <span style={{ color: 'var(--ui-text-muted)' }}>· Misi Bos</span>
+              </div>
+              <div className="flex items-center justify-center gap-1.5 tabular-nums font-bold">
+                <span
+                  className="px-1.5 py-0.5 rounded-md border"
+                  style={{
+                    borderColor: hud.missionGates >= hud.missionGatesTarget ? '#22c55e' : 'var(--ui-border)',
+                    backgroundColor: hud.missionGates >= hud.missionGatesTarget ? 'rgba(34,197,94,0.16)' : 'var(--ui-surface)',
+                    color: hud.missionGates >= hud.missionGatesTarget ? '#22c55e' : 'var(--ui-text)',
+                  }}
+                >
+                  Gerbang {hud.missionGates}/{hud.missionGatesTarget}
+                </span>
+                <span
+                  className="px-1.5 py-0.5 rounded-md border"
+                  style={{
+                    borderColor: hud.missionKills >= hud.missionKillsTarget ? '#22c55e' : 'var(--ui-border)',
+                    backgroundColor: hud.missionKills >= hud.missionKillsTarget ? 'rgba(34,197,94,0.16)' : 'var(--ui-surface)',
+                    color: hud.missionKills >= hud.missionKillsTarget ? '#22c55e' : 'var(--ui-text)',
+                  }}
+                >
+                  Musuh {hud.missionKills}/{hud.missionKillsTarget}
+                </span>
+                <span
+                  className="px-1.5 py-0.5 rounded-md border"
+                  style={{
+                    borderColor: hud.missionItems >= hud.missionItemsTarget ? '#22c55e' : 'var(--ui-border)',
+                    backgroundColor: hud.missionItems >= hud.missionItemsTarget ? 'rgba(34,197,94,0.16)' : 'var(--ui-surface)',
+                    color: hud.missionItems >= hud.missionItemsTarget ? '#22c55e' : 'var(--ui-text)',
+                  }}
+                >
+                  Item {hud.missionItems}/{hud.missionItemsTarget}
+                </span>
+              </div>
+            </div>
+          )}
+
           {hud.bossActive && (
             <div
               className="a11y-card w-56 sm:w-72 rounded-xl px-3 py-1.5 border shadow-md"
@@ -271,8 +326,8 @@ export function GameHud({
               }}
             >
               <div className="flex justify-between text-[11px] font-extrabold mb-1">
-                <span className="text-red-500">{hud.bossName}</span>
-                <span className="tabular-nums">{hud.bossHp}/{hud.bossMaxHp}</span>
+                <span className="text-red-500 truncate">{hud.bossName}</span>
+                <span className="tabular-nums shrink-0 ml-2">{hud.bossHp}/{hud.bossMaxHp}</span>
               </div>
               <div className="h-2 w-full rounded-full overflow-hidden bg-black/30">
                 <div
@@ -375,114 +430,85 @@ export function GameHud({
         </div>
       </div>
 
-      {/* Bottom Multitouch Gamepad Controls (Left Cross D-Pad + Right Nintendo Diamond) */}
+      {/* Bottom Multitouch Gamepad Controls (Left Analog Joystick + Right Nintendo Diamond) */}
       <div className="flex items-end justify-between gap-2 w-full">
-        {/* LEFT THUMB: Unified Nintendo-Style Cross D-Pad (supports hold & thumb glide diagonals) */}
+        {/* LEFT THUMB: Smooth 360-degree Virtual Analog Joystick */}
         <div
-          ref={dpadRef}
-          role="group"
-          aria-label="D-Pad Arah Pesawat (Naik, Turun, Kiri, Kanan)"
+          ref={joystickRef}
+          role="slider"
+          aria-label="Joystick Arah Pesawat 360 Derajat"
+          aria-valuetext={knobOffset.active ? 'Joystick aktif' : 'Joystick netral'}
           onPointerDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            dpadPointerIdRef.current = e.pointerId;
+            joystickPointerIdRef.current = e.pointerId;
             try {
               e.currentTarget.setPointerCapture(e.pointerId);
             } catch {
               // ignore if unsupported
             }
-            updateDpadFromPointer(e.clientX, e.clientY);
+            updateJoystickFromPointer(e.clientX, e.clientY);
           }}
           onPointerMove={(e) => {
-            if (dpadPointerIdRef.current !== e.pointerId) return;
+            if (joystickPointerIdRef.current !== e.pointerId) return;
             e.preventDefault();
             e.stopPropagation();
-            updateDpadFromPointer(e.clientX, e.clientY);
+            updateJoystickFromPointer(e.clientX, e.clientY);
           }}
           onPointerUp={(e) => {
-            if (dpadPointerIdRef.current !== e.pointerId) return;
+            if (joystickPointerIdRef.current !== e.pointerId) return;
             e.preventDefault();
             e.stopPropagation();
-            releaseDpad();
+            releaseJoystick();
           }}
           onPointerCancel={(e) => {
-            if (dpadPointerIdRef.current !== e.pointerId) return;
+            if (joystickPointerIdRef.current !== e.pointerId) return;
             e.stopPropagation();
-            releaseDpad();
+            releaseJoystick();
           }}
           onLostPointerCapture={() => {
-            releaseDpad();
+            releaseJoystick();
           }}
           onContextMenu={(e) => e.preventDefault()}
-          className="pointer-events-auto touch-none relative w-[144px] h-[144px] sm:w-[164px] sm:h-[164px] rounded-full border flex items-center justify-center shadow-xl cursor-pointer select-none ml-0.5 mb-0.5 sm:ml-2 sm:mb-1.5"
+          className="pointer-events-auto touch-none relative w-[138px] h-[138px] sm:w-[158px] sm:h-[158px] rounded-full border-2 flex items-center justify-center shadow-xl cursor-grab active:cursor-grabbing select-none ml-0.5 mb-0.5 sm:ml-2 sm:mb-1.5"
           style={{
-            backgroundColor: 'rgba(15, 23, 42, 0.36)',
-            borderColor: 'rgba(255, 255, 255, 0.18)',
+            backgroundColor: 'rgba(15, 23, 42, 0.42)',
+            borderColor: knobOffset.active ? 'rgba(56, 189, 248, 0.72)' : 'rgba(255, 255, 255, 0.22)',
           }}
         >
-          {/* Unified Cross (+) Body */}
-          <div className="relative w-[124px] h-[124px] sm:w-[142px] sm:h-[142px] pointer-events-none">
-            {/* UP Arm */}
-            <div
-              className="absolute top-0 left-1/3 w-1/3 h-[37%] rounded-t-xl border-2 border-b-0 flex items-center justify-center transition-colors"
-              style={{
-                backgroundColor: pressedMap.up ? 'var(--ui-accent)' : '#1e293b',
-                borderColor: pressedMap.up ? '#ffffff' : '#475569',
-                color: pressedMap.up ? '#ffffff' : '#cbd5e1',
-              }}
-            >
-              <span className="text-[11px] font-black leading-none select-none">▲</span>
-            </div>
+          {/* Inner Range Ring & Subtle Directional Crosshairs */}
+          <div
+            className="pointer-events-none absolute w-[88px] h-[88px] sm:w-[102px] sm:h-[102px] rounded-full border border-dashed"
+            style={{ borderColor: 'rgba(255, 255, 255, 0.16)' }}
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute left-3 right-3 h-px"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+            aria-hidden="true"
+          />
+          <div
+            className="pointer-events-none absolute top-3 bottom-3 w-px"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+            aria-hidden="true"
+          />
 
-            {/* DOWN Arm */}
+          {/* Movable Thumbstick Knob */}
+          <div
+            className="pointer-events-none w-[58px] h-[58px] sm:w-[66px] sm:h-[66px] rounded-full border-[3px] flex items-center justify-center shadow-2xl"
+            style={{
+              backgroundColor: knobOffset.active ? 'var(--ui-accent)' : '#1e293b',
+              borderColor: knobOffset.active ? '#ffffff' : '#64748b',
+              transform: `translate3d(${knobOffset.x}px, ${knobOffset.y}px, 0)`,
+              transition: knobOffset.active ? 'none' : 'transform 120ms ease-out',
+            }}
+          >
             <div
-              className="absolute bottom-0 left-1/3 w-1/3 h-[37%] rounded-b-xl border-2 border-t-0 flex items-center justify-center transition-colors"
+              className="w-5 h-5 sm:w-6 sm:h-6 rounded-full"
               style={{
-                backgroundColor: pressedMap.down ? 'var(--ui-accent)' : '#1e293b',
-                borderColor: pressedMap.down ? '#ffffff' : '#475569',
-                color: pressedMap.down ? '#ffffff' : '#cbd5e1',
+                backgroundColor: knobOffset.active ? 'rgba(255,255,255,0.45)' : 'rgba(148,163,184,0.35)',
               }}
-            >
-              <span className="text-[11px] font-black leading-none select-none">▼</span>
-            </div>
-
-            {/* LEFT Arm */}
-            <div
-              className="absolute left-0 top-1/3 h-1/3 w-[37%] rounded-l-xl border-2 border-r-0 flex items-center justify-center transition-colors"
-              style={{
-                backgroundColor: pressedMap.left ? 'var(--ui-accent)' : '#1e293b',
-                borderColor: pressedMap.left ? '#ffffff' : '#475569',
-                color: pressedMap.left ? '#ffffff' : '#cbd5e1',
-              }}
-            >
-              <span className="text-[11px] font-black leading-none select-none">◀</span>
-            </div>
-
-            {/* RIGHT Arm */}
-            <div
-              className="absolute right-0 top-1/3 h-1/3 w-[37%] rounded-r-xl border-2 border-l-0 flex items-center justify-center transition-colors"
-              style={{
-                backgroundColor: pressedMap.right ? 'var(--ui-accent)' : '#1e293b',
-                borderColor: pressedMap.right ? '#ffffff' : '#475569',
-                color: pressedMap.right ? '#ffffff' : '#cbd5e1',
-              }}
-            >
-              <span className="text-[11px] font-black leading-none select-none">▶</span>
-            </div>
-
-            {/* Center Pivot Hub */}
-            <div
-              className="absolute top-1/3 left-1/3 w-1/3 h-1/3 flex items-center justify-center"
-              style={{ backgroundColor: '#1e293b' }}
-            >
-              <div
-                className="w-6 h-6 sm:w-7 sm:h-7 rounded-full border shadow-inner"
-                style={{
-                  backgroundColor: '#0f172a',
-                  borderColor: '#475569',
-                }}
-              />
-            </div>
+            />
           </div>
         </div>
 
@@ -609,13 +635,13 @@ export function GameHud({
           <button
             type="button"
             aria-label="Tembak (Tahan untuk tembak terus / Spasi)"
-            {...bindHoldButton('shoot')}
+            {...bindShootButton()}
             className="pointer-events-auto a11y-focus absolute bottom-4 right-0 w-[78px] h-[78px] sm:w-[88px] sm:h-[88px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-2xl cursor-pointer transition-transform touch-none"
             style={{
-              backgroundColor: pressedMap.shoot ? '#b91c1c' : '#ef4444',
-              borderColor: pressedMap.shoot ? '#ffffff' : '#fecaca',
+              backgroundColor: shootPressed ? '#b91c1c' : '#ef4444',
+              borderColor: shootPressed ? '#ffffff' : '#fecaca',
               color: '#ffffff',
-              transform: pressedMap.shoot ? 'scale(0.92)' : 'scale(1)',
+              transform: shootPressed ? 'scale(0.92)' : 'scale(1)',
             }}
           >
             <Crosshair className="w-7 h-7 sm:w-8 sm:h-8" aria-hidden="true" />
@@ -627,4 +653,4 @@ export function GameHud({
       </div>
     </div>
   );
-}
+});

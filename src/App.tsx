@@ -38,7 +38,6 @@ import type {
   GameOverSummary,
   GameSettings,
   HudSnapshot,
-  MapId,
   PlaneId,
   PlaneModelTier,
   PlayerProgress,
@@ -54,8 +53,8 @@ const PROGRESS_KEY = 'aeroglide_progress_v2';
 
 const DEFAULT_SETTINGS: GameSettings = {
   steeringSensitivity: 1.15,
-  randomThemePerSession: true,
-  selectedTheme: 'space',
+  randomThemePerSession: false,
+  selectedTheme: 'forest',
   graphicsQuality: 'auto',
   musicVolume: 0.45,
   sfxVolume: 0.75,
@@ -97,20 +96,30 @@ const INITIAL_HUD: HudSnapshot = {
   planeId: 'balance',
   modelTier: 1,
   weaponType: 'signature',
-  effectiveWeaponName: 'Aero Lock',
-  effectiveWeaponColorCss: '#16a34a',
+  effectiveWeaponName: 'Aero Rail',
+  effectiveWeaponColorCss: '#0284c7',
   weaponOverrideRemaining: 0,
   steerInput: 0,
   verticalInput: 0,
   activeControl: 'keyboard',
   enemiesDestroyed: 0,
+  bossesDefeated: 0,
+  stageNumber: 1,
+  stageLabel: 'Zona 1/5 · Forest',
+  missionGates: 0,
+  missionGatesTarget: 4,
+  missionKills: 0,
+  missionKillsTarget: 5,
+  missionItems: 0,
+  missionItemsTarget: 2,
+  stageClearBanner: '',
   bossActive: false,
-  bossName: '',
+  bossName: 'Sylvan Scout Ace (Bos Lv.1)',
   bossHp: 0,
   bossMaxHp: 1,
   practiceStep: 0,
   practiceMessage: '',
-  themeId: 'space',
+  themeId: 'forest',
 };
 
 const UPGRADE_COST_MAP: Record<keyof PlayerUpgrades, number[]> = {
@@ -366,7 +375,7 @@ export default function App() {
     );
 
     engine.setPlaneType(progress.selectedPlane, getPlaneModelTier(progress, progress.selectedPlane));
-    engine.applyTheme(settings.selectedTheme);
+    engine.applyTheme('forest');
     engine.applySettings(settings, {
       highContrast: accessibility.highContrast,
       reducedMotion: accessibility.reducedMotion,
@@ -421,25 +430,6 @@ export default function App() {
         return { ...prev, selectedPlane: planeId };
       });
       announce(`Pesawat diganti ke ${PLANE_CATALOG[planeId].name}.`);
-    },
-    [announce],
-  );
-
-  const handleSelectMap = useCallback(
-    (mapId: MapId | 'random') => {
-      soundEngine.playUiClick();
-      if (mapId === 'random') {
-        setSettings((prev) => ({ ...prev, randomThemePerSession: true }));
-        announce('Mode peta acak setiap sesi aktif.');
-      } else {
-        setSettings((prev) => ({
-          ...prev,
-          randomThemePerSession: false,
-          selectedTheme: mapId,
-        }));
-        engineRef.current?.applyTheme(mapId);
-        announce(`Peta dipilih: ${mapId}.`);
-      }
     },
     [announce],
   );
@@ -608,13 +598,11 @@ export default function App() {
           accessibility={accessibility}
           progress={progress}
           bestScore={bestScore}
-          currentThemeId={settings.selectedTheme}
           hasOpenModal={activeModal !== 'none'}
           isFullscreen={isFullscreen}
           canFullscreen={canFullscreen}
           onStartGame={() => void startFlight('standard')}
           onStartPractice={() => void startFlight('practice')}
-          onSelectMap={handleSelectMap}
           onOpenHangar={() => {
             soundEngine.playUiClick();
             setActiveModal('hangar');
@@ -657,6 +645,9 @@ export default function App() {
           }}
           onControlButton={(action, pressed) => {
             engineRef.current?.setControlButton(action, pressed);
+          }}
+          onJoystickInput={(steer, vertical, active) => {
+            engineRef.current?.setJoystickInput(steer, vertical, active);
           }}
         />
       )}
@@ -716,9 +707,6 @@ export default function App() {
           settings={settings}
           onChange={(next) => {
             setSettings(next);
-            if (!next.randomThemePerSession && screen !== 'playing') {
-              engineRef.current?.applyTheme(next.selectedTheme);
-            }
           }}
           onClose={() => {
             soundEngine.playUiClick();

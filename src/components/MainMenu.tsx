@@ -19,23 +19,21 @@ import {
   Crosshair,
   Map as MapIcon,
 } from 'lucide-react';
-import { ENVIRONMENT_THEMES, THEME_IDS, normalizeMapId } from '../game/themes';
+import { CAMPAIGN_STAGES, ENVIRONMENT_THEMES } from '../game/themes';
 import { PLANE_CATALOG, computeEffectivePlaneStats, getDisplayWeaponLabel } from '../game/planes';
 import { PWAInstallButton } from './PWAInstallButton';
-import type { AccessibilitySettings, GameSettings, MapId, PlayerProgress, ThemeId } from '../types/game';
+import type { AccessibilitySettings, GameSettings, PlayerProgress } from '../types/game';
 
 interface MainMenuProps {
   settings: GameSettings;
   accessibility: AccessibilitySettings;
   progress: PlayerProgress;
   bestScore: number;
-  currentThemeId: ThemeId;
   hasOpenModal: boolean;
   isFullscreen: boolean;
   canFullscreen: boolean;
   onStartGame: () => void;
   onStartPractice: () => void;
-  onSelectMap: (mapId: MapId | 'random') => void;
   onOpenHangar: () => void;
   onOpenSettings: () => void;
   onOpenAccessibility: () => void;
@@ -50,13 +48,11 @@ export function MainMenu({
   accessibility,
   progress,
   bestScore,
-  currentThemeId,
   hasOpenModal,
   isFullscreen,
   canFullscreen,
   onStartGame,
   onStartPractice,
-  onSelectMap,
   onOpenHangar,
   onOpenSettings,
   onOpenAccessibility,
@@ -78,7 +74,6 @@ export function MainMenu({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [hasOpenModal, onStartGame]);
 
-  const activeTheme = ENVIRONMENT_THEMES[normalizeMapId(currentThemeId)];
   const activePlane = PLANE_CATALOG[progress.selectedPlane];
   const stats = computeEffectivePlaneStats(progress);
   const weaponDisplay = getDisplayWeaponLabel(progress.selectedPlane, stats.weaponType);
@@ -250,49 +245,34 @@ export function MainMenu({
               </span>
             </div>
 
-            {/* Quick 5-Map Selector */}
+            {/* 5-Stage Campaign Progression Strip */}
             <div className="pt-2 border-t" style={{ borderColor: 'var(--ui-border)' }}>
               <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--ui-text-muted)' }}>
                 <span className="inline-flex items-center gap-1">
                   <MapIcon className="w-3 h-3" aria-hidden="true" />
-                  Pilih Map 3D
+                  Rute Kampanye 5 Zona
                 </span>
-                <span>{settings.randomThemePerSession ? 'Acak' : activeTheme.name}</span>
+                <span>Kalahkan Bos → Pindah Zona</span>
               </div>
-              <div className="grid grid-cols-6 gap-1">
-                {THEME_IDS.map((mid) => {
-                  const t = ENVIRONMENT_THEMES[mid];
-                  const active = !settings.randomThemePerSession && normalizeMapId(settings.selectedTheme) === mid;
+              <div className="grid grid-cols-5 gap-1">
+                {CAMPAIGN_STAGES.map((st) => {
+                  const t = ENVIRONMENT_THEMES[st.mapId];
                   return (
-                    <button
-                      key={mid}
-                      type="button"
-                      onClick={() => onSelectMap(mid)}
-                      aria-pressed={active}
-                      className="a11y-focus py-1.5 px-1 rounded-lg text-[10px] font-bold cursor-pointer truncate border transition-colors"
+                    <div
+                      key={st.mapId}
+                      className="py-1 px-1 rounded-lg text-center border"
                       style={{
-                        backgroundColor: active ? t.uiAccentCss : 'var(--ui-surface)',
-                        color: active ? '#ffffff' : 'var(--ui-text)',
-                        borderColor: active ? t.uiAccentCss : 'var(--ui-border)',
+                        backgroundColor: st.stage === 1 ? t.uiAccentCss : 'var(--ui-surface)',
+                        color: st.stage === 1 ? '#ffffff' : 'var(--ui-text)',
+                        borderColor: st.stage === 1 ? t.uiAccentCss : 'var(--ui-border)',
                       }}
+                      title={`Tahap ${st.stage}: ${t.name} (${st.difficultyLabel}) · ${st.bossName}`}
                     >
-                      {t.shortName}
-                    </button>
+                      <div className="text-[9.5px] font-extrabold truncate">{st.stage}. {t.shortName}</div>
+                      <div className="text-[8.5px] opacity-85 truncate">+{st.bossPoints}p</div>
+                    </div>
                   );
                 })}
-                <button
-                  type="button"
-                  onClick={() => onSelectMap('random')}
-                  aria-pressed={settings.randomThemePerSession}
-                  className="a11y-focus py-1.5 px-1 rounded-lg text-[10px] font-bold cursor-pointer truncate border transition-colors"
-                  style={{
-                    backgroundColor: settings.randomThemePerSession ? 'var(--ui-accent)' : 'var(--ui-surface)',
-                    color: settings.randomThemePerSession ? '#ffffff' : 'var(--ui-text)',
-                    borderColor: settings.randomThemePerSession ? 'var(--ui-accent)' : 'var(--ui-border)',
-                  }}
-                >
-                  Acak
-                </button>
               </div>
             </div>
           </section>
@@ -387,7 +367,7 @@ export function MainMenu({
           className="text-[11px] font-medium text-center py-0.5 drop-shadow-sm"
           style={{ color: 'var(--ui-text)' }}
         >
-          WASD / Panah · Spasi Tembak · Shift Booster · Q Perisai · Multitouch Layar Sentuh
+          WASD / Panah · Spasi Tembak · Shift Booster · Q Perisai · Joystick Virtual &amp; Tombol Sentuh
         </div>
       </div>
     </main>

@@ -155,10 +155,10 @@ export function GameOverModal({
             </div>
             <div>
               <div className="text-xs" style={{ color: 'var(--ui-text-muted)' }}>
-                Musuh Hancur / Kombo
+                Zona / Bos Kalah
               </div>
               <div className="text-base font-bold tabular-nums">
-                {summary.enemiesDestroyed} musuh · {summary.maxCombo}x
+                Zona {summary.stageReached} · {summary.bossesDefeated} Bos ({summary.enemiesDestroyed} musuh)
               </div>
             </div>
           </div>

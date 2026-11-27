@@ -22,6 +22,7 @@ export type PlaneModelTier = 1 | 2 | 3 | 4;
 export type WeaponType =
   | 'signature'
   | 'single'
+  | 'hyper'
   | 'rapid'
   | 'double'
   | 'triple'
@@ -132,6 +133,16 @@ export interface HudSnapshot {
   verticalInput: number; // -1 to 1
   activeControl: ControlSource;
   enemiesDestroyed: number;
+  bossesDefeated: number;
+  stageNumber: number;
+  stageLabel: string;
+  missionGates: number;
+  missionGatesTarget: number;
+  missionKills: number;
+  missionKillsTarget: number;
+  missionItems: number;
+  missionItemsTarget: number;
+  stageClearBanner: string;
   bossActive: boolean;
   bossName: string;
   bossHp: number;
@@ -147,6 +158,8 @@ export interface GameOverSummary {
   maxCombo: number;
   powerUpsCollected: number;
   enemiesDestroyed: number;
+  bossesDefeated: number;
+  stageReached: number;
   pointsEarned: number;
   planeId: PlaneId;
   modelTier: PlaneModelTier;

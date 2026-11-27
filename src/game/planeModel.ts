@@ -73,6 +73,7 @@ export function createProceduralPlane(
   planeId: PlaneId = 'balance',
   modelTier: PlaneModelTier = 1,
 ): PlaneRig {
+  void isSoftwareGl;
   const root = new THREE.Group();
   const bodyGroup = new THREE.Group();
   root.add(bodyGroup);
@@ -163,15 +164,13 @@ export function createProceduralPlane(
 
   const canopyMat = new THREE.MeshPhysicalMaterial({
     color: palette.canopy,
-    roughness: 0.06,
-    metalness: 0.05,
+    roughness: 0.05,
+    metalness: 0.14,
     clearcoat: 1.0,
     clearcoatRoughness: 0.06,
-    transmission: isSoftwareGl ? 0 : 0.72,
+    envMapIntensity: 1.45,
     transparent: true,
-    opacity: isSoftwareGl ? 0.55 : 0.9,
-    ior: 1.5,
-    thickness: 0.65,
+    opacity: 0.48,
     depthWrite: false,
   });
 
@@ -590,12 +589,12 @@ export function createProceduralPlane(
   // 10. Energy Shield Protective Bubble
   const shieldGeo = new THREE.IcosahedronGeometry(2.65, 2);
   geometries.push(shieldGeo);
-  const shieldMat = new THREE.MeshPhysicalMaterial({
+  const shieldMat = new THREE.MeshStandardMaterial({
     color: 0x2dd4bf,
     emissive: 0x0d9488,
     emissiveIntensity: 0.55,
-    roughness: 0.1,
-    metalness: 0.1,
+    roughness: 0.14,
+    metalness: 0.15,
     transparent: true,
     opacity: 0.26,
     depthWrite: false,

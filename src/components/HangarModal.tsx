@@ -647,7 +647,7 @@ export function HangarModal({
           style={{ backgroundColor: 'var(--ui-surface)', borderColor: 'var(--ui-border)' }}
         >
           <div className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: 'var(--ui-text-muted)' }}>
-            Rasio Item &amp; Bonus Poin (+2 Gawang · +10 s/d +120 Poin Hancurkan Musuh)
+            Rasio Item &amp; Perolehan Poin (+1/10m · +6 Gerbang · +8..+35 Musuh · 15% Skor + Bonus Bos 35..400 Poin)
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
             <div className="flex items-center gap-2">
@@ -664,7 +664,7 @@ export function HangarModal({
             </div>
             <div className="flex items-center gap-2">
               <Star className="w-4 h-4 shrink-0 text-amber-400 fill-amber-400" aria-hidden="true" />
-              <span><strong>Skor (10%):</strong> +5 Skor</span>
+              <span><strong>Skor (10%):</strong> +15 Skor</span>
             </div>
             <div className="flex items-center gap-2">
               <Crosshair className="w-4 h-4 shrink-0 text-fuchsia-400" aria-hidden="true" />

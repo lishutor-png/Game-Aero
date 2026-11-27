@@ -1,6 +1,6 @@
-import { X, Hand, Shuffle, Cpu, Volume2 } from 'lucide-react';
-import { ENVIRONMENT_THEMES, THEME_IDS, normalizeMapId } from '../game/themes';
-import type { GameSettings, GraphicsQuality, ThemeId } from '../types/game';
+import { X, Hand, Map as MapIcon, Cpu, Volume2 } from 'lucide-react';
+import { CAMPAIGN_STAGES, ENVIRONMENT_THEMES } from '../game/themes';
+import type { GameSettings, GraphicsQuality } from '../types/game';
 
 interface SettingsModalProps {
   settings: GameSettings;
@@ -109,68 +109,48 @@ export function SettingsModal({
                 <span>Cepat (2.0x)</span>
               </div>
               <p className="text-xs pt-1" style={{ color: 'var(--ui-text-muted)' }}>
-                Gunakan tombol sentuh Kiri/Kanan/Naik/Turun &amp; Tembak, geser layar, atau gunakan WASD/Panah, Spasi (Tembak), Shift (Booster), dan Q (Perisai) pada keyboard.
+                Gunakan Joystick virtual &amp; tombol aksi di layar sentuh, atau gunakan WASD/Panah, Spasi (Tembak), Shift (Booster), dan Q (Perisai) pada keyboard.
               </p>
             </div>
           </section>
 
-          {/* Environment Theme Section */}
+          {/* Campaign Zone Progression Info */}
           <section aria-labelledby="theme-section-title" className="space-y-3">
             <div className="flex items-center gap-2">
-              <Shuffle className="w-4 h-4" style={{ color: 'var(--ui-accent)' }} aria-hidden="true" />
+              <MapIcon className="w-4 h-4" style={{ color: 'var(--ui-accent)' }} aria-hidden="true" />
               <h3 id="theme-section-title" className="text-sm font-bold uppercase tracking-wider">
-                Tema Lingkungan 3D
+                Alur Zona &amp; Bos Kampanye
               </h3>
             </div>
 
-            <label className="flex items-center justify-between gap-3 p-3 rounded-xl border cursor-pointer" style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-surface)' }}>
-              <div>
-                <div className="text-sm font-semibold">Acak Tema Setiap Sesi Bermain</div>
-                <div className="text-xs" style={{ color: 'var(--ui-text-muted)' }}>
-                  Mengubah suasana langit &amp; rintangan secara otomatis setiap kali terbang
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={settings.randomThemePerSession}
-                onChange={(e) => onChange({ ...settings, randomThemePerSession: e.target.checked })}
-                className="w-5 h-5 accent-sky-600"
-              />
-            </label>
-
-            {!settings.randomThemePerSession && (
-              <div className="grid grid-cols-2 gap-2">
-                {THEME_IDS.map((id: ThemeId) => {
-                  const t = ENVIRONMENT_THEMES[id];
-                  const selected = normalizeMapId(settings.selectedTheme) === id;
+            <div className="p-3 rounded-xl border space-y-2" style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-surface)' }}>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--ui-text-muted)' }}>
+                Peta tidak dipilih manual atau acak—setiap penerbangan dimulai dari <strong>Hutan</strong> dan otomatis berlanjut ke zona berikutnya setelah misi selesai dan Bos zona dikalahkan.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
+                {CAMPAIGN_STAGES.map((st) => {
+                  const t = ENVIRONMENT_THEMES[st.mapId];
                   return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => onChange({ ...settings, selectedTheme: id })}
-                      aria-pressed={selected}
-                      className="a11y-focus text-left p-3 rounded-xl border cursor-pointer transition-colors"
-                      style={{
-                        backgroundColor: selected ? 'var(--ui-surface-muted)' : 'var(--ui-surface)',
-                        borderColor: selected ? 'var(--ui-accent)' : 'var(--ui-border)',
-                        borderWidth: selected ? '2px' : '1px',
-                      }}
+                    <div
+                      key={st.mapId}
+                      className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border"
+                      style={{ borderColor: 'var(--ui-border)', backgroundColor: 'var(--ui-bg-solid)' }}
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span
-                          className="w-3.5 h-3.5 rounded-full shrink-0 border"
-                          style={{ backgroundColor: t.uiAccentCss, borderColor: 'var(--ui-border)' }}
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: t.uiAccentCss }}
                         />
-                        <span className="text-sm font-bold">{t.name}</span>
+                        <span className="font-bold truncate">{st.stage}. {t.name}</span>
                       </div>
-                      <p className="text-[11px] mt-1" style={{ color: 'var(--ui-text-muted)' }}>
-                        {t.subtitle}
-                      </p>
-                    </button>
+                      <span className="text-[10.5px] font-semibold shrink-0" style={{ color: 'var(--ui-text-muted)' }}>
+                        {st.difficultyLabel} (+{st.bossPoints}p)
+                      </span>
+                    </div>
                   );
                 })}
               </div>
-            )}
+            </div>
           </section>
 
           {/* Performance & Audio */}

@@ -148,10 +148,122 @@ export const ENVIRONMENT_THEMES: Record<ThemeId, EnvironmentTheme> = {
   },
 };
 
-export const THEME_IDS: ThemeId[] = ['space', 'city', 'forest', 'desert', 'snow'];
+export const THEME_IDS: ThemeId[] = ['forest', 'desert', 'city', 'snow', 'space'];
+
+export const CAMPAIGN_STAGE_ORDER: MapId[] = ['forest', 'desert', 'city', 'snow', 'space'];
+
+export interface CampaignStageConfig {
+  stage: number;
+  mapId: MapId;
+  difficultyLabel: string;
+  bossName: string;
+  bossWeaponDesc: string;
+  bossHp: number;
+  bossScore: number;
+  bossPoints: number;
+  missionGatesTarget: number;
+  missionKillsTarget: number;
+  missionItemsTarget: number;
+  bossCooldownSec: number;
+}
+
+export const CAMPAIGN_STAGES: CampaignStageConfig[] = [
+  {
+    stage: 1,
+    mapId: 'forest',
+    difficultyLabel: 'Mudah',
+    bossName: 'Sylvan Scout Ace (Bos Lv.1)',
+    bossWeaponDesc: '1 Tembakan Tunggal',
+    bossHp: 170,
+    bossScore: 100,
+    bossPoints: 35,
+    missionGatesTarget: 4,
+    missionKillsTarget: 5,
+    missionItemsTarget: 2,
+    bossCooldownSec: 2.0,
+  },
+  {
+    stage: 2,
+    mapId: 'desert',
+    difficultyLabel: 'Sedang',
+    bossName: 'Dune Twin-Fang (Bos Lv.2)',
+    bossWeaponDesc: '2 Tembakan Kembar',
+    bossHp: 320,
+    bossScore: 220,
+    bossPoints: 75,
+    missionGatesTarget: 6,
+    missionKillsTarget: 8,
+    missionItemsTarget: 3,
+    bossCooldownSec: 1.75,
+  },
+  {
+    stage: 3,
+    mapId: 'city',
+    difficultyLabel: 'Menantang',
+    bossName: 'Metro Tri-Valkyrie (Bos Lv.3)',
+    bossWeaponDesc: '3 Tembakan Kipas & Burst',
+    bossHp: 520,
+    bossScore: 380,
+    bossPoints: 140,
+    missionGatesTarget: 8,
+    missionKillsTarget: 12,
+    missionItemsTarget: 4,
+    bossCooldownSec: 1.5,
+  },
+  {
+    stage: 4,
+    mapId: 'snow',
+    difficultyLabel: 'Sulit',
+    bossName: 'Frost Quad-Dominator (Bos Lv.4)',
+    bossWeaponDesc: '4 Tembakan Beruntun & Sebar',
+    bossHp: 780,
+    bossScore: 600,
+    bossPoints: 240,
+    missionGatesTarget: 10,
+    missionKillsTarget: 16,
+    missionItemsTarget: 5,
+    bossCooldownSec: 1.25,
+  },
+  {
+    stage: 5,
+    mapId: 'space',
+    difficultyLabel: 'Sangat Sulit',
+    bossName: 'Void Sovereign Prime (Bos Final)',
+    bossWeaponDesc: '5 Tembakan Radial & Sapuan',
+    bossHp: 1120,
+    bossScore: 1000,
+    bossPoints: 400,
+    missionGatesTarget: 12,
+    missionKillsTarget: 22,
+    missionItemsTarget: 6,
+    bossCooldownSec: 1.0,
+  },
+];
+
+export function getStageConfig(stageIndex: number): CampaignStageConfig {
+  if (stageIndex < CAMPAIGN_STAGES.length) {
+    return CAMPAIGN_STAGES[Math.max(0, stageIndex)];
+  }
+  const extra = stageIndex - CAMPAIGN_STAGES.length + 1;
+  const base = CAMPAIGN_STAGES[CAMPAIGN_STAGES.length - 1];
+  return {
+    stage: stageIndex + 1,
+    mapId: 'space',
+    difficultyLabel: `Overdrive +${extra}`,
+    bossName: `Void Overlord Mk.${extra + 1} (Overdrive)`,
+    bossWeaponDesc: '5+ Tembakan Kombo Ekstrem',
+    bossHp: base.bossHp + extra * 340,
+    bossScore: base.bossScore + extra * 350,
+    bossPoints: base.bossPoints + extra * 120,
+    missionGatesTarget: base.missionGatesTarget + extra * 2,
+    missionKillsTarget: base.missionKillsTarget + extra * 4,
+    missionItemsTarget: base.missionItemsTarget + Math.min(4, extra),
+    bossCooldownSec: Math.max(0.75, base.bossCooldownSec - extra * 0.08),
+  };
+}
 
 export function normalizeMapId(raw: string | undefined): MapId {
-  if (!raw) return 'space';
+  if (!raw) return 'forest';
   if (raw === 'space' || raw === 'city' || raw === 'forest' || raw === 'desert' || raw === 'snow') {
     return raw;
   }
@@ -160,7 +272,7 @@ export function normalizeMapId(raw: string | undefined): MapId {
   if (raw === 'sunset') return 'desert';
   if (raw === 'arctic') return 'snow';
   if (raw === 'midnight') return 'space';
-  return 'space';
+  return 'forest';
 }
 
 export function pickRandomTheme(exclude?: ThemeId): ThemeId {

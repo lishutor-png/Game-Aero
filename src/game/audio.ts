@@ -210,6 +210,12 @@ class ProceduralAudioEngine {
       osc.frequency.exponentialRampToValueAtTime(240, now + 0.13);
       gain.gain.setValueAtTime(0.11, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+    } else if (weapon === 'hyper') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(1020, now);
+      osc.frequency.exponentialRampToValueAtTime(195, now + 0.085);
+      gain.gain.setValueAtTime(0.105, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.095);
     } else if (weapon === 'autolock') {
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(980, now);
