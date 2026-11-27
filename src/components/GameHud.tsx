@@ -1,4 +1,4 @@
-import { useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   Pause,
   Shield,
@@ -8,10 +8,6 @@ import {
   Heart,
   Flame,
   Coins,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
-  ArrowDown,
   Crosshair,
   Skull,
 } from 'lucide-react';
@@ -73,6 +69,61 @@ export function GameHud({
     shieldRecharging && hud.rechargeIntervalSec > 0
       ? Math.max(0, Math.min(100, (1 - hud.armorRechargeRemaining / hud.rechargeIntervalSec) * 100))
       : 100;
+
+  const dpadRef = useRef<HTMLDivElement | null>(null);
+  const dpadPointerIdRef = useRef<number | null>(null);
+
+  const updateDpadFromPointer = (clientX: number, clientY: number) => {
+    const el = dpadRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const halfW = Math.max(1, rect.width / 2);
+    const halfH = Math.max(1, rect.height / 2);
+    const nx = (clientX - cx) / halfW;
+    const ny = (clientY - cy) / halfH;
+    const mag = Math.hypot(nx, ny);
+
+    const deadzone = 0.16;
+    const nextLeft = mag >= deadzone && nx < -0.24;
+    const nextRight = mag >= deadzone && nx > 0.24;
+    const nextUp = mag >= deadzone && ny < -0.24;
+    const nextDown = mag >= deadzone && ny > 0.24;
+
+    setPressedMap((prev) => {
+      if (
+        prev.left === nextLeft &&
+        prev.right === nextRight &&
+        prev.up === nextUp &&
+        prev.down === nextDown
+      ) {
+        return prev;
+      }
+      if (prev.left !== nextLeft) onControlButton('left', nextLeft);
+      if (prev.right !== nextRight) onControlButton('right', nextRight);
+      if (prev.up !== nextUp) onControlButton('up', nextUp);
+      if (prev.down !== nextDown) onControlButton('down', nextDown);
+      return {
+        ...prev,
+        left: nextLeft,
+        right: nextRight,
+        up: nextUp,
+        down: nextDown,
+      };
+    });
+  };
+
+  const releaseDpad = () => {
+    dpadPointerIdRef.current = null;
+    setPressedMap((prev) => {
+      if (prev.left) onControlButton('left', false);
+      if (prev.right) onControlButton('right', false);
+      if (prev.up) onControlButton('up', false);
+      if (prev.down) onControlButton('down', false);
+      return { ...prev, left: false, right: false, up: false, down: false };
+    });
+  };
 
   const bindHoldButton = (action: ControlActionKey) => ({
     onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
@@ -324,89 +375,133 @@ export function GameHud({
         </div>
       </div>
 
-      {/* Bottom Multitouch Thumb Controls */}
+      {/* Bottom Multitouch Gamepad Controls (Left Cross D-Pad + Right Nintendo Diamond) */}
       <div className="flex items-end justify-between gap-2 w-full">
-        {/* LEFT THUMB: 4-Way Flight Directional Pad (58x58px touch targets with gap-2) */}
+        {/* LEFT THUMB: Unified Nintendo-Style Cross D-Pad (supports hold & thumb glide diagonals) */}
         <div
-          className="pointer-events-auto touch-none grid grid-cols-3 gap-2 items-center justify-items-center"
-          aria-label="Kontrol Arah Pesawat"
+          ref={dpadRef}
+          role="group"
+          aria-label="D-Pad Arah Pesawat (Naik, Turun, Kiri, Kanan)"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dpadPointerIdRef.current = e.pointerId;
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+              // ignore if unsupported
+            }
+            updateDpadFromPointer(e.clientX, e.clientY);
+          }}
+          onPointerMove={(e) => {
+            if (dpadPointerIdRef.current !== e.pointerId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            updateDpadFromPointer(e.clientX, e.clientY);
+          }}
+          onPointerUp={(e) => {
+            if (dpadPointerIdRef.current !== e.pointerId) return;
+            e.preventDefault();
+            e.stopPropagation();
+            releaseDpad();
+          }}
+          onPointerCancel={(e) => {
+            if (dpadPointerIdRef.current !== e.pointerId) return;
+            e.stopPropagation();
+            releaseDpad();
+          }}
+          onLostPointerCapture={() => {
+            releaseDpad();
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+          className="pointer-events-auto touch-none relative w-[144px] h-[144px] sm:w-[164px] sm:h-[164px] rounded-full border flex items-center justify-center shadow-xl cursor-pointer select-none ml-0.5 mb-0.5 sm:ml-2 sm:mb-1.5"
+          style={{
+            backgroundColor: 'rgba(15, 23, 42, 0.36)',
+            borderColor: 'rgba(255, 255, 255, 0.18)',
+          }}
         >
-          <div />
-          <button
-            type="button"
-            aria-label="Naik (W / Panah Atas)"
-            {...bindHoldButton('up')}
-            className="a11y-focus w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border-2 flex flex-col items-center justify-center shadow-lg cursor-pointer transition-transform touch-none"
-            style={{
-              backgroundColor: pressedMap.up ? 'var(--ui-accent)' : 'var(--ui-bg)',
-              borderColor: pressedMap.up ? '#ffffff' : 'var(--ui-border)',
-              color: pressedMap.up ? '#ffffff' : 'var(--ui-text)',
-              transform: pressedMap.up ? 'scale(0.93)' : 'scale(1)',
-            }}
-          >
-            <ArrowUp className="w-6 h-6" aria-hidden="true" />
-            <span className="text-[9px] font-extrabold leading-none mt-0.5">NAIK</span>
-          </button>
-          <div />
+          {/* Unified Cross (+) Body */}
+          <div className="relative w-[124px] h-[124px] sm:w-[142px] sm:h-[142px] pointer-events-none">
+            {/* UP Arm */}
+            <div
+              className="absolute top-0 left-1/3 w-1/3 h-[37%] rounded-t-xl border-2 border-b-0 flex items-center justify-center transition-colors"
+              style={{
+                backgroundColor: pressedMap.up ? 'var(--ui-accent)' : '#1e293b',
+                borderColor: pressedMap.up ? '#ffffff' : '#475569',
+                color: pressedMap.up ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              <span className="text-[11px] font-black leading-none select-none">▲</span>
+            </div>
 
-          <button
-            type="button"
-            aria-label="Kiri (A / Panah Kiri)"
-            {...bindHoldButton('left')}
-            className="a11y-focus w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border-2 flex flex-col items-center justify-center shadow-lg cursor-pointer transition-transform touch-none"
-            style={{
-              backgroundColor: pressedMap.left ? 'var(--ui-accent)' : 'var(--ui-bg)',
-              borderColor: pressedMap.left ? '#ffffff' : 'var(--ui-border)',
-              color: pressedMap.left ? '#ffffff' : 'var(--ui-text)',
-              transform: pressedMap.left ? 'scale(0.93)' : 'scale(1)',
-            }}
-          >
-            <ArrowLeft className="w-6 h-6" aria-hidden="true" />
-            <span className="text-[9px] font-extrabold leading-none mt-0.5">KIRI</span>
-          </button>
+            {/* DOWN Arm */}
+            <div
+              className="absolute bottom-0 left-1/3 w-1/3 h-[37%] rounded-b-xl border-2 border-t-0 flex items-center justify-center transition-colors"
+              style={{
+                backgroundColor: pressedMap.down ? 'var(--ui-accent)' : '#1e293b',
+                borderColor: pressedMap.down ? '#ffffff' : '#475569',
+                color: pressedMap.down ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              <span className="text-[11px] font-black leading-none select-none">▼</span>
+            </div>
 
-          <button
-            type="button"
-            aria-label="Turun (S / Panah Bawah)"
-            {...bindHoldButton('down')}
-            className="a11y-focus w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border-2 flex flex-col items-center justify-center shadow-lg cursor-pointer transition-transform touch-none"
-            style={{
-              backgroundColor: pressedMap.down ? 'var(--ui-accent)' : 'var(--ui-bg)',
-              borderColor: pressedMap.down ? '#ffffff' : 'var(--ui-border)',
-              color: pressedMap.down ? '#ffffff' : 'var(--ui-text)',
-              transform: pressedMap.down ? 'scale(0.93)' : 'scale(1)',
-            }}
-          >
-            <ArrowDown className="w-6 h-6" aria-hidden="true" />
-            <span className="text-[9px] font-extrabold leading-none mt-0.5">TURUN</span>
-          </button>
+            {/* LEFT Arm */}
+            <div
+              className="absolute left-0 top-1/3 h-1/3 w-[37%] rounded-l-xl border-2 border-r-0 flex items-center justify-center transition-colors"
+              style={{
+                backgroundColor: pressedMap.left ? 'var(--ui-accent)' : '#1e293b',
+                borderColor: pressedMap.left ? '#ffffff' : '#475569',
+                color: pressedMap.left ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              <span className="text-[11px] font-black leading-none select-none">◀</span>
+            </div>
 
-          <button
-            type="button"
-            aria-label="Kanan (D / Panah Kanan)"
-            {...bindHoldButton('right')}
-            className="a11y-focus w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border-2 flex flex-col items-center justify-center shadow-lg cursor-pointer transition-transform touch-none"
-            style={{
-              backgroundColor: pressedMap.right ? 'var(--ui-accent)' : 'var(--ui-bg)',
-              borderColor: pressedMap.right ? '#ffffff' : 'var(--ui-border)',
-              color: pressedMap.right ? '#ffffff' : 'var(--ui-text)',
-              transform: pressedMap.right ? 'scale(0.93)' : 'scale(1)',
-            }}
-          >
-            <ArrowRight className="w-6 h-6" aria-hidden="true" />
-            <span className="text-[9px] font-extrabold leading-none mt-0.5">KANAN</span>
-          </button>
+            {/* RIGHT Arm */}
+            <div
+              className="absolute right-0 top-1/3 h-1/3 w-[37%] rounded-r-xl border-2 border-l-0 flex items-center justify-center transition-colors"
+              style={{
+                backgroundColor: pressedMap.right ? 'var(--ui-accent)' : '#1e293b',
+                borderColor: pressedMap.right ? '#ffffff' : '#475569',
+                color: pressedMap.right ? '#ffffff' : '#cbd5e1',
+              }}
+            >
+              <span className="text-[11px] font-black leading-none select-none">▶</span>
+            </div>
+
+            {/* Center Pivot Hub */}
+            <div
+              className="absolute top-1/3 left-1/3 w-1/3 h-1/3 flex items-center justify-center"
+              style={{ backgroundColor: '#1e293b' }}
+            >
+              <div
+                className="w-6 h-6 sm:w-7 sm:h-7 rounded-full border shadow-inner"
+                style={{
+                  backgroundColor: '#0f172a',
+                  borderColor: '#475569',
+                }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT THUMB: Ergonomic L-Arc Cluster (BOOSTER above TEMBAK, SHIELD left of TEMBAK) */}
+        {/* RIGHT THUMB: Nintendo-Style Face-Button Diamond (X = BOOST top, Y = SHIELD left, A = TEMBAK right) */}
         <div
-          className="grid grid-cols-2 items-end justify-items-end gap-3 sm:gap-3.5 pr-0.5 pb-0.5 sm:pr-2 sm:pb-1.5"
-          aria-label="Tombol Senjata dan Kemampuan"
+          className="relative w-[170px] h-[156px] sm:w-[194px] sm:h-[178px] mr-0.5 mb-0.5 sm:mr-2 sm:mb-1.5"
+          aria-label="Tombol Aksi Tangan Kanan Bergaya Nintendo"
         >
-          {/* Empty top-left slot keeps center-right flight view open and clickable */}
-          <div className="pointer-events-none" aria-hidden="true" />
+          {/* Subtle controller cluster base halo (no backdrop-blur) */}
+          <div
+            className="pointer-events-none absolute inset-1 rounded-full border"
+            style={{
+              backgroundColor: 'rgba(15, 23, 42, 0.24)',
+              borderColor: 'rgba(255, 255, 255, 0.14)',
+            }}
+            aria-hidden="true"
+          />
 
-          {/* BOOSTER Button (Ergonomically above TEMBAK) */}
+          {/* X Slot (Top of Diamond): BOOSTER */}
           <button
             type="button"
             disabled={!boosterReady}
@@ -425,26 +520,26 @@ export function GameHud({
                   ? `Aktifkan Booster (${hud.jetCharges} dari ${hud.maxJetCharges} siap)`
                   : 'Booster tidak tersedia'
             }
-            className="pointer-events-auto a11y-focus relative overflow-hidden w-[68px] h-[68px] sm:w-[74px] sm:h-[74px] md:w-[80px] md:h-[80px] rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl cursor-pointer transition-transform active:scale-95 disabled:opacity-65 disabled:cursor-not-allowed touch-none"
+            className="pointer-events-auto a11y-focus absolute top-0 left-[44%] -translate-x-1/2 overflow-hidden w-[64px] h-[64px] sm:w-[72px] sm:h-[72px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-xl cursor-pointer transition-transform active:scale-95 disabled:opacity-65 disabled:cursor-not-allowed touch-none"
             style={{
               backgroundColor: boosterActive
                 ? '#ea580c'
                 : boosterReady
                   ? '#f97316'
-                  : 'var(--ui-bg)',
-              borderColor: boosterReady || boosterActive ? '#fdba74' : 'var(--ui-border)',
-              color: boosterReady || boosterActive ? '#ffffff' : 'var(--ui-text)',
+                  : '#1e293b',
+              borderColor: boosterReady || boosterActive ? '#fdba74' : '#475569',
+              color: boosterReady || boosterActive ? '#ffffff' : '#cbd5e1',
             }}
           >
             {jetRecharging && !boosterActive && (
               <div
-                className="absolute left-0 bottom-0 right-0 opacity-30"
+                className="absolute left-0 bottom-0 right-0 opacity-35"
                 style={{ height: `${jetRechargePct}%`, backgroundColor: '#f97316' }}
                 aria-hidden="true"
               />
             )}
-            <Flame className="w-6 h-6 sm:w-7 sm:h-7 relative z-10" aria-hidden="true" />
-            <span className="relative z-10 text-[9.5px] sm:text-[10.5px] font-extrabold mt-0.5 tabular-nums leading-none whitespace-nowrap">
+            <Flame className="w-5 h-5 sm:w-6 sm:h-6 relative z-10" aria-hidden="true" />
+            <span className="relative z-10 text-[9px] sm:text-[10px] font-extrabold mt-0.5 tabular-nums leading-none whitespace-nowrap">
               {boosterActive
                 ? `${hud.boosterActiveRemaining.toFixed(1)}d`
                 : hasJetAbility
@@ -452,13 +547,13 @@ export function GameHud({
                   : 'BOOST'}
             </span>
             {jetRecharging && !boosterActive && (
-              <span className="relative z-10 text-[9.5px] font-bold opacity-90 tabular-nums leading-none mt-0.5 whitespace-nowrap">
+              <span className="relative z-10 text-[8.5px] font-bold opacity-90 tabular-nums leading-none mt-0.5 whitespace-nowrap">
                 {Math.max(0.1, hud.jetRechargeRemaining).toFixed(0)}d
               </span>
             )}
           </button>
 
-          {/* SHIELD Button (Ergonomically to the left of TEMBAK) */}
+          {/* Y Slot (Left Wing of Diamond): SHIELD */}
           <button
             type="button"
             disabled={!shieldReady}
@@ -477,26 +572,26 @@ export function GameHud({
                   ? `Aktifkan Perisai (${hud.armorRemaining} dari ${hud.maxArmor} siap)`
                   : 'Perisai tidak tersedia'
             }
-            className="pointer-events-auto a11y-focus relative overflow-hidden w-[68px] h-[68px] sm:w-[74px] sm:h-[74px] md:w-[80px] md:h-[80px] rounded-2xl border-2 flex flex-col items-center justify-center shadow-xl cursor-pointer transition-transform active:scale-95 disabled:opacity-65 disabled:cursor-not-allowed touch-none"
+            className="pointer-events-auto a11y-focus absolute bottom-2 left-0 overflow-hidden w-[64px] h-[64px] sm:w-[72px] sm:h-[72px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-xl cursor-pointer transition-transform active:scale-95 disabled:opacity-65 disabled:cursor-not-allowed touch-none"
             style={{
               backgroundColor: shieldActive
                 ? '#0d9488'
                 : shieldReady
                   ? '#14b8a6'
-                  : 'var(--ui-bg)',
-              borderColor: shieldReady || shieldActive ? '#99f6e4' : 'var(--ui-border)',
-              color: shieldReady || shieldActive ? '#ffffff' : 'var(--ui-text)',
+                  : '#1e293b',
+              borderColor: shieldReady || shieldActive ? '#99f6e4' : '#475569',
+              color: shieldReady || shieldActive ? '#ffffff' : '#cbd5e1',
             }}
           >
             {shieldRecharging && !shieldActive && (
               <div
-                className="absolute left-0 bottom-0 right-0 opacity-30"
+                className="absolute left-0 bottom-0 right-0 opacity-35"
                 style={{ height: `${shieldRechargePct}%`, backgroundColor: '#14b8a6' }}
                 aria-hidden="true"
               />
             )}
-            <Shield className="w-6 h-6 sm:w-7 sm:h-7 relative z-10" aria-hidden="true" />
-            <span className="relative z-10 text-[9.5px] sm:text-[10.5px] font-extrabold mt-0.5 tabular-nums leading-none whitespace-nowrap">
+            <Shield className="w-5 h-5 sm:w-6 sm:h-6 relative z-10" aria-hidden="true" />
+            <span className="relative z-10 text-[9px] sm:text-[10px] font-extrabold mt-0.5 tabular-nums leading-none whitespace-nowrap">
               {shieldActive
                 ? `${hud.shieldActiveRemaining.toFixed(0)}d`
                 : hasShieldAbility
@@ -504,18 +599,18 @@ export function GameHud({
                   : 'SHIELD'}
             </span>
             {shieldRecharging && !shieldActive && (
-              <span className="relative z-10 text-[9.5px] font-bold opacity-90 tabular-nums leading-none mt-0.5 whitespace-nowrap">
+              <span className="relative z-10 text-[8.5px] font-bold opacity-90 tabular-nums leading-none mt-0.5 whitespace-nowrap">
                 {Math.max(0.1, hud.armorRechargeRemaining).toFixed(0)}d
               </span>
             )}
           </button>
 
-          {/* TEMBAK (Primary Large Combat Trigger anchored at bottom-right thumb rest) */}
+          {/* A Slot (Primary Right Wing of Diamond): TEMBAK */}
           <button
             type="button"
             aria-label="Tembak (Tahan untuk tembak terus / Spasi)"
             {...bindHoldButton('shoot')}
-            className="pointer-events-auto a11y-focus w-[80px] h-[80px] sm:w-[88px] sm:h-[88px] md:w-[96px] md:h-[96px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-2xl cursor-pointer transition-transform touch-none"
+            className="pointer-events-auto a11y-focus absolute bottom-4 right-0 w-[78px] h-[78px] sm:w-[88px] sm:h-[88px] rounded-full border-[3px] flex flex-col items-center justify-center shadow-2xl cursor-pointer transition-transform touch-none"
             style={{
               backgroundColor: pressedMap.shoot ? '#b91c1c' : '#ef4444',
               borderColor: pressedMap.shoot ? '#ffffff' : '#fecaca',
@@ -523,8 +618,10 @@ export function GameHud({
               transform: pressedMap.shoot ? 'scale(0.92)' : 'scale(1)',
             }}
           >
-            <Crosshair className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10" aria-hidden="true" />
-            <span className="text-[11px] sm:text-xs font-extrabold tracking-wider mt-0.5 leading-none">TEMBAK</span>
+            <Crosshair className="w-7 h-7 sm:w-8 sm:h-8" aria-hidden="true" />
+            <span className="text-[10.5px] sm:text-xs font-extrabold tracking-wider mt-0.5 leading-none">
+              TEMBAK
+            </span>
           </button>
         </div>
       </div>
